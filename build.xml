@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="CN1TeaVM-Builds" default="default" basedir=".">
+    <description>Creates a new Release of TeaVM for the CN1 Build server</description>
+    <property value="0.3.0-cn1-028" name="cn1.release.version"/>
+    <property value="0.3.0-SNAPSHOT" name="teavm.snapshot.version"/>
+    
+    <target name="release" description="Creates a new release">
+        <exec executable="mvn" dir=".">
+            <arg value="clean"/>
+            <arg value="release:prepare"/>
+            <arg value="--batch-mode"/>
+            <arg value="-Dtag=${cn1.release.version}"/>
+            <arg value="-DreleaseVersion=${cn1.release.version}"/>
+            <arg value="-DdevelopmentVersion=${teavm.snapshot.version}"/>
+            <arg value="-DautoVersionSubmodules=true"/>
+            <arg value="-Darguments='-DskipTests=true'"/>
+        </exec>
+         <exec executable="mvn" dir=".">
+            <arg value="clean"/>
+            <arg value="release:perform"/>
+            <arg value="-Darguments='-DskipTests=true'"/>
+        </exec>
+
+    </target>
+</project>
