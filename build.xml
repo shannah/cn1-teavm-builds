@@ -4,7 +4,13 @@
     <property value="0.3.0-cn1-028" name="cn1.release.version"/>
     <property value="0.3.0-SNAPSHOT" name="teavm.snapshot.version"/>
     
-    <target name="release" description="Creates a new release">
+    <target name="merge-master" description="Merges master">
+        <exec executable="sh" dir=".">
+            <arg value="merge-master.sh"/>
+        </exec>
+    </target>
+    
+    <target name="release" depends="merge-master" description="Creates a new release">
         <exec executable="mvn" dir=".">
             <arg value="clean"/>
             <arg value="release:prepare"/>
