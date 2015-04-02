@@ -47,9 +47,9 @@
     
 
   <scm>
-    <url>https://github.com/shannah/teavm</url>
-    <developerConnection>scm:git:https://github.com/shannah/teavm.git</developerConnection>
-	<connection>scm:git:https://github.com/shannah/teavm.git</connection>
+    <url>https://github.com/shannah/cn1-teavm-builds</url>
+    <developerConnection>scm:git:https://github.com/shannah/cn1-teavm-builds.git</developerConnection>
+	<connection>scm:git:https://github.com/shannah/cn1-teavm-builds.git</connection>
   </scm>
 
   <distributionManagement>
