@@ -171,6 +171,30 @@
   </dependencyManagement>
 
   <build>
+  
+    <plugins>
+    <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-release-plugin</artifactId>
+            <version>2.5.1</version>
+            <configuration>
+                <goals>deploy</goals>
+                <autoVersionSubmodules>true</autoVersionSubmodules>
+            </configuration>
+            <dependencies>
+                <dependency>
+                        <groupId>org.apache.maven.scm</groupId>
+                        <artifactId>maven-scm-api</artifactId>
+                        <version>1.9.4</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.apache.maven.scm</groupId>
+                        <artifactId>maven-scm-provider-gitexe</artifactId>
+                        <version>1.9.4</version>
+                    </dependency>
+            </dependencies>
+        </plugin>
+    </plugins>
     <pluginManagement>
       <plugins>
         <plugin>
@@ -265,27 +289,6 @@
       <id>sign-artifacts</id>
       <build>
         <plugins>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-release-plugin</artifactId>
-            <version>2.5.1</version>
-            <configuration>
-                <goals>deploy</goals>
-                <autoVersionSubmodules>true</autoVersionSubmodules>
-            </configuration>
-            <dependencies>
-                <dependency>
-                        <groupId>org.apache.maven.scm</groupId>
-                        <artifactId>maven-scm-api</artifactId>
-                        <version>1.9.4</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.apache.maven.scm</groupId>
-                        <artifactId>maven-scm-provider-gitexe</artifactId>
-                        <version>1.9.4</version>
-                    </dependency>
-            </dependencies>
-        </plugin>
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-gpg-plugin</artifactId>
