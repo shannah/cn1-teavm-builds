@@ -44,23 +44,25 @@
       <timezone>+4</timezone>
     </developer>
   </developers>
+    
 
   <scm>
-    <url>https://github.com/konsoletyper/teavm</url>
-    <connection>scm:git:git@github.com:konsoletyper/teavm.git</connection>
+    <url>https://github.com/shannah/teavm</url>
+    <developerConnection>scm:git:https://github.com/shannah/teavm.git</developerConnection>
+	<connection>scm:git:https://github.com/shannah/teavm.git</connection>
   </scm>
 
   <distributionManagement>
-    <snapshotRepository>
-      <id>sonatype-nexus-snapshots</id>
-      <name>Sonatype Nexus Snapshots</name>
-      <url>${sonatypeOssDistMgmtSnapshotsUrl}</url>
-    </snapshotRepository>
-    <repository>
-      <id>sonatype-nexus-staging</id>
-      <name>Nexus Release Repository</name>
-      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-    </repository>
+     <repository>  
+       <id>maven-s3-release-repo</id>  
+       <name>S3 Release Repository</name>  
+       <url>s3://${s3.bucket.name}/release</url>  
+     </repository>  
+     <snapshotRepository>  
+       <id>maven-s3-snapshot-repo</id>  
+       <name>S3 Snapshot Repository</name>  
+       <url>s3://${s3.bucket.name}/snapshot</url>  
+     </snapshotRepository>  
   </distributionManagement>
 
   <properties>
@@ -69,6 +71,7 @@
     <html4j.version>1.1</html4j.version>
     <jetty.version>9.2.1.v20140609</jetty.version>
     <slf4j.version>1.7.7</slf4j.version>
+    <s3.bucket.name>cn1-maven</s3.bucket.name>
   </properties>
 
   <modules>
@@ -247,13 +250,30 @@
         </plugin>
       </plugins>
     </pluginManagement>
+    <extensions>  
+       <extension>
+        <groupId>org.springframework.build</groupId>
+        <artifactId>aws-maven</artifactId>
+        <version>5.0.0.RELEASE</version>
+      </extension>
+     </extensions>  
   </build>
+    
 
   <profiles>
     <profile>
       <id>sign-artifacts</id>
       <build>
         <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-release-plugin</artifactId>
+            <version>2.5.1</version>
+            <configuration>
+                <goals>deploy</goals>
+                <autoVersionSubmodules>true</autoVersionSubmodules>
+            </configuration>
+        </plugin>
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-gpg-plugin</artifactId>
