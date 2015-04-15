@@ -529,7 +529,6 @@ function $rt_nativeThread() {
 function $rt_invalidPointer() {
     throw new Error("Invalid recorded state");
 }
-
 function $dbg_repr(obj) {
     return obj.toString ? obj.toString() : "";
 }
