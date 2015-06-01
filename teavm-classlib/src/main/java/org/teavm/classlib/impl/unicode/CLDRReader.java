@@ -111,6 +111,9 @@ public class CLDRReader {
                     case "territories.json":
                         readCountries(localeName, localeInfo, input);
                         break;
+                    case "timeZoneNames.json":
+                        readTimeZones(localeName, localeInfo, input);
+                        break;
                     case "ca-gregorian.json": {
                         JsonObject root = (JsonObject)new JsonParser().parse(new InputStreamReader(input));
                         readEras(localeName, localeInfo, root);
@@ -123,6 +126,9 @@ public class CLDRReader {
                         readTimeFormats(localeName, localeInfo, root);
                         readDateTimeFormats(localeName, localeInfo, root);
                         break;
+                    }
+                    case "currencies.json": {
+                        readCurrencies(localeName, localeInfo, input);
                     }
                 }
             }
@@ -152,6 +158,52 @@ public class CLDRReader {
             if (availableCountries.contains(country)) {
                 locale.territories.put(country, property.getValue().getAsString());
             }
+        }
+    }
+
+    private void readTimeZones(String localeCode, CLDRLocale locale, InputStream input) {
+        JsonObject root = (JsonObject)new JsonParser().parse(new InputStreamReader(input));
+        JsonObject zonesJson = root.get("main").getAsJsonObject().get(localeCode).getAsJsonObject()
+                .get("dates").getAsJsonObject().get("timeZoneNames").getAsJsonObject().get("zone")
+                .getAsJsonObject();
+        List<CLDRTimeZone> timeZones = new ArrayList<>();
+        for (Map.Entry<String, JsonElement> area : zonesJson.entrySet()) {
+            String areaName = area.getKey();
+            for (Map.Entry<String, JsonElement> location : area.getValue().getAsJsonObject().entrySet()) {
+                String locationName = location.getKey();
+                JsonElement city = location.getValue().getAsJsonObject().get("exemplarCity");
+                if (city != null) {
+                    CLDRTimeZone tz = new CLDRTimeZone(areaName, locationName, city.getAsString());
+                    timeZones.add(tz);
+                } else {
+                    for (Map.Entry<String, JsonElement> sublocation : location.getValue()
+                            .getAsJsonObject().entrySet()) {
+                        city = location.getValue().getAsJsonObject().get("exemplarCity");
+                        if (city != null) {
+                            CLDRTimeZone tz = new CLDRTimeZone(areaName, locationName + "/" + sublocation.getKey(),
+                                    city.getAsString());
+                            timeZones.add(tz);
+                        }
+                    }
+                }
+            }
+        }
+        locale.timeZones = timeZones.toArray(new CLDRTimeZone[timeZones.size()]);
+    }
+
+    private void readCurrencies(String localeCode, CLDRLocale locale, InputStream input) {
+        JsonObject root = (JsonObject)new JsonParser().parse(new InputStreamReader(input));
+        JsonObject currenciesJson = root.get("main").getAsJsonObject().get(localeCode).getAsJsonObject()
+                .get("numbers").getAsJsonObject().get("currencies").getAsJsonObject();
+        for (Map.Entry<String, JsonElement> currencyEntry : currenciesJson.entrySet()) {
+            String currencyCode = currencyEntry.getKey();
+            JsonObject currencyJson = currencyEntry.getValue().getAsJsonObject();
+            CLDRCurrency currency = new CLDRCurrency();
+            currency.name = currencyJson.get("displayName").getAsString();
+            if (currencyJson.has("symbol")) {
+                currency.symbol = currencyJson.get("symbol").getAsString();
+            }
+            locale.currencies.put(currencyCode, currency);
         }
     }
 

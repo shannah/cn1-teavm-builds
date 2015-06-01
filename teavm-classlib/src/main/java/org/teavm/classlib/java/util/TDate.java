@@ -52,7 +52,7 @@ public class TDate implements TComparable<TDate> {
     @Deprecated
     public TDate(int year, int month, int date, int hrs, int min, int sec) {
         this((long)buildNumericTime(year, month, date, hrs, min, sec));
-        setFullYear(value, year+1900);
+        setFullYear(value, year + 1900);
     }
 
     public TDate(String s) {
@@ -80,12 +80,12 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getYear() {
-        return getFullYear(value)-1900;
+        return getFullYear(value) - 1900;
     }
 
     @Deprecated
     public void setYear(int year) {
-        this.value = (long)setFullYear(value, year+1900);
+        this.value = (long)setFullYear(value, year + 1900);
     }
 
     @Deprecated
@@ -196,7 +196,7 @@ public class TDate implements TComparable<TDate> {
     @Deprecated
     public int getTimezoneOffset() {
         //return getTimezoneOffset(value);
-        return -TimeZone.getDefault().getOffset(value) / (1000*60);
+        return -TimeZone.getDefault().getOffset(value) / (1000 * 60);
     }
 
     @GeneratedBy(DateNativeGenerator.class)

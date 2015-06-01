@@ -18,7 +18,7 @@
 package org.teavm.classlib.java.util;
 
 public class TGregorianCalendar extends TCalendar {
-    
+
     public static final int BC = 0;
 
     public static final int AD = 1;
@@ -58,10 +58,6 @@ public class TGregorianCalendar extends TCalendar {
     public TGregorianCalendar() {
         this(TLocale.getDefault());
     }
-    
-    public TGregorianCalendar(TTimeZone zone) {
-        this(zone, TLocale.getDefault());
-    }
 
     public TGregorianCalendar(int year, int month, int day) {
         set(year, month, day);
@@ -81,16 +77,20 @@ public class TGregorianCalendar extends TCalendar {
     }
 
     public TGregorianCalendar(TLocale locale) {
-        super(locale);
-        setTimeInMillis(System.currentTimeMillis());
+        this(TTimeZone.getDefault(), locale);
     }
-    
-    public TGregorianCalendar(TTimeZone zone, TLocale locale) {
-        this(locale);
-        setTimeZone(zone);
+
+    public TGregorianCalendar(TTimeZone zone) {
+        this(zone, TLocale.getDefault());
+    }
+
+    public TGregorianCalendar(TTimeZone timezone, TLocale locale) {
+        super(timezone, locale);
+        setTimeInMillis(System.currentTimeMillis());
     }
 
     TGregorianCalendar(@SuppressWarnings("unused") boolean ignored) {
+        super(TTimeZone.getDefault());
         setFirstDayOfWeek(SUNDAY);
         setMinimalDaysInFirstWeek(1);
     }
@@ -312,60 +312,10 @@ public class TGregorianCalendar extends TCalendar {
         }
     }
 
-    private int getTimeZoneOffset(double time) {
-        //return -TDate.getTimezoneOffset(time) * 1000 * 60;
-        return getOffset((long)time);
+    int getTimeZoneOffset(long localTime) {
+        return getTimeZone().getOffset(localTime);
     }
 
-    private int getOffset(long localTime) {
-        TTimeZone timeZone = getTimeZone();
-        if (!timeZone.useDaylightTime()) {
-            return timeZone.getRawOffset();
-        }
-        
-        long dayCount = localTime / 86400000;
-        int millis = (int) (localTime % 86400000);
-        if (millis < 0) {
-            millis += 86400000;
-            dayCount--;
-        }
-        
-        int year = 1970;
-        long days = dayCount;
-        if (localTime < gregorianCutover) {
-            days -= julianSkew;
-        }
-        int approxYears;
-        
-        while ((approxYears = (int) (days / 365)) != 0) {
-            year = year + approxYears;
-            days = dayCount - daysFromBaseYear(year);
-        }
-        if (days < 0) {
-            year = year - 1;
-            days = days + 365 + (isLeapYear(year) ? 1 : 0);
-            if (year == changeYear && localTime < gregorianCutover) {
-                days -= julianError();
-            }
-        }
-        if (year <= 0) {
-            return timeZone.getRawOffset();
-        }
-        int dayOfYear = (int) days + 1;
-        
-        int month = dayOfYear / 32;
-        boolean leapYear = isLeapYear(year);
-        int date = dayOfYear - daysInYear(leapYear, month);
-        if (date > daysInMonth(leapYear, month)) {
-            date -= daysInMonth(leapYear, month);
-            month++;
-        }
-        int dayOfWeek = mod7(dayCount - 3) + 1;
-        int offset = timeZone.getOffset(AD, year, month, date, dayOfWeek,
-                                        millis);
-        return offset;
-    }
-    
     @Override
     protected void computeFields() {
         int zoneOffset = getTimeZoneOffset(time);
@@ -656,7 +606,7 @@ public class TGregorianCalendar extends TCalendar {
         if (year >= 1970) {
             long days = (year - 1970) * 365 + ((year - 1969) / 4);
             if (year > changeYear) {
-                days -= ((year - 1901) / 100) - ((year - 1601) / 400);
+                days -= (year - 1901) / 100 - (year - 1601) / 400;
             } else {
                 if (year == changeYear) {
                     days += currentYearSkew;

@@ -1,452 +1,494 @@
 /*
- * Copyright 2015 Steve Hannah.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
+
 package org.teavm.classlib.java.util;
 
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import static org.teavm.classlib.java.util.TGregorianCalendar.AD;
-import static org.teavm.classlib.java.util.TGregorianCalendar.BC;
-import org.teavm.jso.JS;
-import org.teavm.jso.JSConstructor;
-import org.teavm.jso.JSObject;
-import org.teavm.platform.PlatformTimezone;
+import java.io.Serializable;
+import java.util.Arrays;
+import org.teavm.classlib.impl.tz.DateTimeZone;
+import org.teavm.classlib.impl.tz.DateTimeZoneProvider;
+import org.teavm.classlib.impl.tz.FixedDateTimeZone;
+import org.teavm.classlib.impl.unicode.CLDRHelper;
 
 /**
- * TimeZone represents a time zone offset, and also figures out daylight savings.
- * Typically, you get a TimeZone using getDefault which creates a TimeZone based on the 
- * time zone where the program is running. For example, for a program running in Japan, 
- * getDefault creates a TimeZone object based on Japanese Standard Time.
- * You can also get a TimeZone using getTimeZone along with a time zone ID. For instance, 
- * the time zone ID for the Pacific Standard Time zone is "PST". So, you can get a PST 
- * TimeZone object with:
- * This class is a pure subset of the java.util.TimeZone class in JDK 1.3.
- * The only time zone ID that is required to be supported is "GMT".
- * Apart from the methods and variables being subset, the semantics of the getTimeZone()
- * method may also be subset: custom IDs such as "GMT-8:00" are not required to be supported.
- * Version: CLDC 1.1 02/01/2002 (Based on JDK 1.3) See Also:Calendar, Date
+ * {@code TimeZone} represents a time zone offset, taking into account
+ * daylight savings.
+ * <p>
+ * Typically, you get a {@code TimeZone} using {@code getDefault}
+ * which creates a {@code TimeZone} based on the time zone where the
+ * program is running. For example, for a program running in Japan,
+ * {@code getDefault} creates a {@code TimeZone} object based on
+ * Japanese Standard Time.
+ * <p>
+ * You can also get a {@code TimeZone} using {@code getTimeZone}
+ * along with a time zone ID. For instance, the time zone ID for the U.S.
+ * Pacific Time zone is "America/Los_Angeles". So, you can get a U.S. Pacific
+ * Time {@code TimeZone} object with the following: <blockquote>
+ *
+ * <pre>
+ * TimeZone tz = TimeZone.getTimeZone(&quot;America/Los_Angeles&quot;);
+ * </pre>
+ *
+ * </blockquote> You can use the {@code getAvailableIDs} method to iterate
+ * through all the supported time zone IDs. You can then choose a supported ID
+ * to get a {@code TimeZone}. If the time zone you want is not
+ * represented by one of the supported IDs, then you can create a custom time
+ * zone ID with the following syntax: <blockquote>
+ *
+ * <pre>
+ * GMT[+|-]hh[[:]mm]
+ * </pre>
+ *
+ * </blockquote> For example, you might specify GMT+14:00 as a custom time zone
+ * ID. The {@code TimeZone} that is returned when you specify a custom
+ * time zone ID does not include daylight savings time.
+ * <p>
+ * For compatibility with JDK 1.1.x, some other three-letter time zone IDs (such
+ * as "PST", "CTT", "AST") are also supported. However, <strong>their use is
+ * deprecated</strong> because the same abbreviation is often used for multiple
+ * time zones (for example, "CST" could be U.S. "Central Standard Time" and
+ * "China Standard Time"), and the Java platform can then only recognize one of
+ * them.
+ * <p>
+ * Please note the type returned by factory methods, i.e. {@code getDefault()}
+ * and {@code getTimeZone(String)}, is implementation dependent, so it may
+ * introduce serialization incompatibility issues between different
+ * implementations.
+ *
+ * @see GregorianCalendar
+ * @see TSimpleTimeZone
  */
-public abstract class TTimeZone {
-    
-    // For the Local Timezone we need to use the Javascript Date object
-    // Directly, so here is a makeshift JSO for it.  If this object already
-    // has a JSO or it is deemed adventageous to move this to a more centralized
-    // location, then refactor by all means.
-    interface JSDate extends JSObject {
-        int getDate();
-        int getDay();
-        int getFullYear();
-        void setFullYear(int year);
-        int getHours();
-        int getMilliseconds();
-        int getMinutes();
-        int getMonth();
-        int getSeconds();
-        double getTime();
-        int getTimezoneOffset();
-        void setDate(int day);
-    }
-    
-    interface JSDateFactory extends JSObject {
-        @JSConstructor("Date")
-        JSDate createDate();
-        
-        @JSConstructor("Date")
-        JSDate createDate(double millis);
-        
-        @JSConstructor("Date")
-        JSDate createDate(String dateString);
-        
-        @JSConstructor("Date")
-        JSDate createDate(int year, int month, int day, int hours, int minutes, int seconds, int milliseconds);
-    }
-    
-    static JSDate createJSDate() {
-        return ((JSDateFactory)JS.getGlobal()).createDate();
-    }
-    
-    static JSDate createJSDate(long millis) {
-        return ((JSDateFactory)JS.getGlobal()).createDate((double)millis);
-    }
-    
-    static JSDate createJSDate(String dateString) {
-        return ((JSDateFactory)JS.getGlobal()).createDate(dateString);
-    }
-    
-    static JSDate createJSDate(int year, int month, int day, int hours, int minutes, int seconds, int milliseconds) {
-        JSDate out = ((JSDateFactory)JS.getGlobal()).createDate(year, month, day, hours, minutes, seconds, milliseconds);
-        out.setFullYear(year);
-        return out;
-    }
-    
-    // End Private Javascript Date Object JSO stuff
-    
+public abstract class TTimeZone implements Serializable, Cloneable {
+    private static final long serialVersionUID = 3581463369166924961L;
+
     /**
-     * A special "local" timezone that represents the timezone of the Javascript
-     * environment.  Javascript doesn't allow us to see the name of this timezone.
-     * We use this as the default platform timezone and set its ID as "Local".
-     */
-    public static class Local extends PlatformTimezone {
-
-        @Override
-        public String getTimezoneId() {
-            return "Local";
-        }
-
-        @Override
-        public int getTimezoneOffset(int year, int month, int day, int timeOfDayMillis) {
-            int hours = (int)Math.floor(timeOfDayMillis/1000/60/60);
-            int minutes = (int)Math.floor(timeOfDayMillis/1000/60)%60;
-            int seconds = (int)Math.floor(timeOfDayMillis/1000)%60;
-            JSDate d = createJSDate(year, month, day, hours, minutes, seconds, timeOfDayMillis % 1000);
-            return d.getTimezoneOffset();
-        }
-
-        @Override
-        public int getTimezoneRawOffset() {
-            JSDate now = createJSDate();
-            JSDate jan = createJSDate(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-            JSDate jul = createJSDate(now.getFullYear(), 6, 1, 0, 0, 0, 0);
-            if (isTimezoneDST((long)jan.getTime())) {
-                return jul.getTimezoneOffset();
-            } else {
-                return jan.getTimezoneOffset();
-            }
-        }
-
-        @Override
-        public boolean isTimezoneDST(long millis) {
-            
-            JSDate now = createJSDate();
-            JSDate jan = createJSDate(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-            JSDate jul = createJSDate(now.getFullYear(), 6, 1, 0, 0, 0, 0);
-            int maxOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
-            return createJSDate(millis).getTimezoneOffset()<maxOffset;
-        }
-    }
-    
-    static {
-        PlatformTimezone.addTimezone("Local", new Local());
-        PlatformTimezone.setPlatformTimezoneId("Local");
-    }
-    
-    /**
-     * The short display name style, such as {@code PDT}. Requests for this
-     * style may yield GMT offsets like {@code GMT-08:00}.
+     * The SHORT display name style.
      */
     public static final int SHORT = 0;
-    
+
     /**
-     * The long display name style, such as {@code Pacific Daylight Time}.
-     * Requests for this style may yield GMT offsets like {@code GMT-08:00}.
+     * The LONG display name style.
      */
     public static final int LONG = 1;
-    
-    static final TTimeZone GMT = new TSimpleTimeZone(0, "GMT"); // Greenwich Mean Time
-    
-    private static TTimeZone defaultTimeZone;
-    
-    private static TTimeZone systemTimeZone;
-    
-    private String ID;
 
-    public TTimeZone() {         
-    }
+    private static TTimeZone defaultTz;
 
-    void setID(String id) {
-        ID = id;
-    }
-    
+    static TTimeZone GMT = new TIANATimeZone(new FixedDateTimeZone("GMT", 0, 0));
+
+    private String id;
+
     /**
-     * Gets all the available IDs supported.
+     * Constructs a new instance of this class.
      */
-    public static java.lang.String[] getAvailableIDs() {
-        return PlatformTimezone.getAvailableIds();
+    public TTimeZone() {
     }
-    
-    public static java.lang.String[] getAvailableIDs(int rawOffset) {
-        List<String> out = new ArrayList<String>();
-        for (String id : getAvailableIDs()) {
-            PlatformTimezone tz = PlatformTimezone.getTimezone(id);
-            if (tz.getTimezoneRawOffset()==rawOffset) {
-                out.add(id);
+
+    TTimeZone(String id) {
+        this.id = id;
+    }
+
+    /**
+     * Returns a new {@code TimeZone} with the same ID, {@code rawOffset} and daylight savings
+     * time rules as this {@code TimeZone}.
+     *
+     * @return a shallow copy of this {@code TimeZone}.
+     * @see java.lang.Cloneable
+     */
+    @Override
+    public Object clone() {
+        try {
+            TTimeZone zone = (TTimeZone) super.clone();
+            return zone;
+        } catch (CloneNotSupportedException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Gets the available time zone IDs. Any one of these IDs can be passed to
+     * {@code get()} to create the corresponding {@code TimeZone} instance.
+     *
+     * @return an array of time zone ID strings.
+     */
+    public static String[] getAvailableIDs() {
+        return DateTimeZoneProvider.getIds();
+    }
+
+    /**
+     * Gets the available time zone IDs which match the specified offset from
+     * GMT. Any one of these IDs can be passed to {@code get()} to create the corresponding
+     * {@code TimeZone} instance.
+     *
+     * @param offset
+     *            the offset from GMT in milliseconds.
+     * @return an array of time zone ID strings.
+     */
+    public static String[] getAvailableIDs(int offset) {
+        String[] all = DateTimeZoneProvider.getIds();
+        String[] result = new String[all.length];
+        int i = 0;
+        for (String id : all) {
+            DateTimeZone jodaTz = DateTimeZoneProvider.getTimeZone(id);
+            if (jodaTz.getStandardOffset(System.currentTimeMillis()) == offset) {
+                result[i++] = id;
             }
         }
-        return out.toArray(new String[out.size()]);
-    }
-    
-    private static String getTimezoneId() {
-        return PlatformTimezone.getPlatformTimezoneId();
-    }
-    
-    private static int getTimezoneOffset(String name, int year, int month, int day, int timeOfDayMillis) {
-        PlatformTimezone tz = PlatformTimezone.getTimezone(name);
-        if (tz==null) {
-            throw new RuntimeException("Timezone not found: "+name);
-        }
-        return tz.getTimezoneOffset(year, month, day, timeOfDayMillis);
-    }
-    
-    private static int getTimezoneRawOffset(String name) {
-        PlatformTimezone tz = PlatformTimezone.getTimezone(name);
-        if (tz==null) {
-            throw new RuntimeException("Timezone not found: "+name);
-        }
-        return tz.getTimezoneRawOffset();
-    }
-    
-    private static boolean isTimezoneDST(String name, long millis) {
-        PlatformTimezone tz = PlatformTimezone.getTimezone(name);
-        if (tz==null) {
-            throw new RuntimeException("Timezone not found: "+name);
-        }
-        return tz.isTimezoneDST(millis);
+        return Arrays.copyOf(result, i);
     }
 
-    private static TTimeZone getSystemTimeZone() {
-        if (systemTimeZone == null) {
-            systemTimeZone = getTimeZone(PlatformTimezone.getPlatformTimezoneId());
-        }
-        return systemTimeZone;
-    }
-    
     /**
-     * Gets the default TimeZone for this host. The source of the default TimeZone may vary with implementation.
+     * Gets the default time zone.
+     *
+     * @return the default time zone.
      */
     public static TTimeZone getDefault() {
-        if (defaultTimeZone == null) {
-            defaultTimeZone = getSystemTimeZone();
+        if (defaultTz == null) {
+            defaultTz = new TIANATimeZone(DateTimeZoneProvider.detectTimezone());
         }
-        return defaultTimeZone;
+        return (TTimeZone) defaultTz.clone();
     }
-    
-    public static void setDefault(TTimeZone tz) {
-        defaultTimeZone=tz;
-    }
-
-    int getDSTSavings() {
-        return useDaylightTime() ? 3600000 : 0;
-    }
-    
-    boolean inDaylightTime(TDate time) {
-        return false;
-    }
-    
-    /**
-     * Gets the ID of this time zone.
-     */
-    public java.lang.String getID() {
-        return ID;
-    }
-
-    public int getOffset(long millis) {
-        Date d = new Date(millis);
-        d.setHours(0);
-        d.setMinutes(0);
-        d.setSeconds(0);
-        return getOffset(d.getYear()>=-1900?AD:BC, d.getYear()+1900, d.getMonth(), d.getDate(), d.getDay(), (int)(millis-d.getTime()));
-    }
-    
-    /**
-     * Gets offset, for current date, modified in case of daylight savings. This is the offset to add *to* GMT to get local time. Gets the time zone offset, for current date, modified in case of daylight savings. This is the offset to add *to* GMT to get local time. Assume that the start and end month are distinct. This method may return incorrect results for rules that start at the end of February (e.g., last Sunday in February) or the beginning of March (e.g., March 1).
-     */
-    public abstract int getOffset(int era, int year, int month, int day, int dayOfWeek, int millis);
 
     /**
-     * Gets the GMT offset for this time zone.
+     * Gets the LONG name for this {@code TimeZone} for the default {@code Locale} in standard
+     * time. If the name is not available, the result is in the format
+     * {@code GMT[+-]hh:mm}.
+     *
+     * @return the {@code TimeZone} name.
      */
-    public abstract int getRawOffset();
+    public final String getDisplayName() {
+        return getDisplayName(false, LONG, TLocale.getDefault());
+    }
 
-    private static String normalizeGMTOffset(String offset){
-        int pos;
-        int len = offset.length();
-        if (len == 1){
-            // Should be simple integer of hours 0-9
-            char c = offset.charAt(0);
-            if (c < '0' || c > '9') {
-                return "";
-            }
-            return "0"+offset+":00";
-        } else if (len == 2){
-            // Should be a 2-digit representation of hours 00-23
-            char c1 = offset.charAt(0);
-            if (c1 < '0' || c1 > '2') {
-                return "";   
-            }
-            char c2 = offset.charAt(1);
-            if (c2 < '0' || (c1 == '2' && c2 > '3') || c2 > '9') {
-                return "";
-            }
-            return offset+":00";
-            
-        } else if (len == 3) {
-            char c1 = offset.charAt(0);
-            if (c1 < '0' || c1 > '9') {
-                return "";
-            }
-            
-            char c2 = offset.charAt(1);
-            if (c2 < '0' || c2 > '5') {
-                return "";
-            }
-            
-            char c3 = offset.charAt(2);
-            if (c3 < '0' || c3 > '9') {
-                return "";
-            }
-            
-            return "0"+c1+":"+c2+c3;
-        } else if (len == 4 && offset.charAt(1) == ':'){
-            char c1 = offset.charAt(0);
-            if (c1 < '0' || c1 > '9') {
-                return "";   
-            }
-            char c2 = offset.charAt(2);
-            if (c2 < '0' || c2 > '5') {
-                return "";
-            }
-            
-            char c3 = offset.charAt(3);
-            if (c3 < '0' || c3 > '9') {
-                return "";
-            }
-            
-            return "0"+c1+":"+c2+c3;
-        } else if (len==4) {
-            char c1 = offset.charAt(0);
-            if (c1 < '0' || c1 > '2') {
-                return "";   
-            }
-            char c2 = offset.charAt(1);
-            if (c2 < '0' || (c1 == '2' && c2 > '3') || c2 > '9') {
-                return "";
-            }
-            
-            char c3 = offset.charAt(2);
-            if (c3 < '0' || c3 > '5') {
-                return "";
-            }
-            
-            char c4 = offset.charAt(3);
-            if (c4 < '0' || c3 > '9') {
-                return "";
-            }
-            
-            return ""+c1+c2+":"+c3+c4;
-        } else if (len == 5 && offset.charAt(2) == ':'){
-            char c1 = offset.charAt(0);
-            if (c1 < '0' || c1 > '2') {
-                return "";   
-            }
-            char c2 = offset.charAt(1);
-            if (c2 < '0' || (c1 == '2' && c2 > '3') || c2 > '9') {
-                return "";
-            }
-            
-            char c3 = offset.charAt(3);
-            if (c3 < '0' || c3 > '5') {
-                return "";
-            }
-            
-            char c4 = offset.charAt(4);
-            if (c4 < '0' || c3 > '9') {
-                return "";
-            }
-            
-            return ""+c1+c2+":"+c3+c4;
-        } else {
-            return "";
+    /**
+     * Gets the LONG name for this {@code TimeZone} for the specified {@code Locale} in standard
+     * time. If the name is not available, the result is in the format
+     * {@code GMT[+-]hh:mm}.
+     *
+     * @param locale
+     *            the {@code Locale}.
+     * @return the {@code TimeZone} name.
+     */
+    public final String getDisplayName(TLocale locale) {
+        return getDisplayName(false, LONG, locale);
+    }
+
+    /**
+     * Gets the specified style of name ({@code LONG} or {@code SHORT}) for this {@code TimeZone} for
+     * the default {@code Locale} in either standard or daylight time as specified. If
+     * the name is not available, the result is in the format {@code GMT[+-]hh:mm}.
+     *
+     * @param daylightTime
+     *            {@code true} for daylight time, {@code false} for standard
+     *            time.
+     * @param style
+     *            either {@code LONG} or {@code SHORT}.
+     * @return the {@code TimeZone} name.
+     */
+    public final String getDisplayName(boolean daylightTime, int style) {
+        return getDisplayName(daylightTime, style, TLocale.getDefault());
+    }
+
+    /**
+     * Gets the specified style of name ({@code LONG} or {@code SHORT}) for this {@code TimeZone} for
+     * the specified {@code Locale} in either standard or daylight time as specified. If
+     * the name is not available, the result is in the format {@code GMT[+-]hh:mm}.
+     *
+     * @param daylightTime
+     *            {@code true} for daylight time, {@code false} for standard
+     *            time.
+     * @param style
+     *            either LONG or SHORT.
+     * @param locale
+     *            either {@code LONG} or {@code SHORT}.
+     * @return the {@code TimeZone} name.
+     */
+    public String getDisplayName(boolean daylightTime, int style, TLocale locale) {
+        String name = CLDRHelper.getTimeZoneName(locale.getLanguage(), locale.getCountry(), id);
+        if (name == null) {
+            name = id;
         }
+        return name;
     }
-    
+
     /**
-     * Gets the TimeZone for the given ID.
+     * Gets the ID of this {@code TimeZone}.
+     *
+     * @return the time zone ID string.
      */
-    public static TTimeZone getTimeZone(java.lang.String ID) {
-        if (PlatformTimezone.getTimezone(ID)!=null) {
-            final TTimeZone tz = new TTimeZone() {
-                
-                private int dstSavings=-1;
-                
-                @Override
-                public int getOffset(int era, int year, int month, int day, int dayOfWeek, int timeOfDayMillis) {
-                    if (era==BC) {
-                        year = -year;
-                    }
-                    return getTimezoneOffset(this.getID(), year, month, day, timeOfDayMillis);
-                }
+    public String getID() {
+        return id;
+    }
 
-                @Override
-                public int getRawOffset() {
-                    return getTimezoneRawOffset(this.getID());
-                }
+    /**
+     * Gets the daylight savings offset in milliseconds for this {@code TimeZone}.
+     * <p>
+     * This implementation returns 3600000 (1 hour), or 0 if the time zone does
+     * not observe daylight savings.
+     * <p>
+     * Subclasses may override to return daylight savings values other than 1
+     * hour.
+     * <p>
+     *
+     * @return the daylight savings offset in milliseconds if this {@code TimeZone}
+     *         observes daylight savings, zero otherwise.
+     */
+    public int getDSTSavings() {
+        if (useDaylightTime()) {
+            return 3600000;
+        }
+        return 0;
+    }
 
-                @Override
-                boolean inDaylightTime(TDate time) {
-                    return isTimezoneDST(this.getID(), time.getTime());
-                }
+    /**
+     * Gets the offset from GMT of this {@code TimeZone} for the specified date. The
+     * offset includes daylight savings time if the specified date is within the
+     * daylight savings time period.
+     *
+     * @param time
+     *            the date in milliseconds since January 1, 1970 00:00:00 GMT
+     * @return the offset from GMT in milliseconds.
+     */
+    public int getOffset(long time) {
+        return inDaylightTime(new TDate(time)) ? getRawOffset() + getDSTSavings() : getRawOffset();
+    }
 
-                @Override
-                public boolean useDaylightTime() {
-                    TDate now = new TDate();
-                    TDate jan = new TDate(now.getYear(), 0, 1);
-                    TDate jul = new TDate(now.getYear(), 6, 1);
-                    return inDaylightTime(jan) || inDaylightTime(jul);
+    /**
+     * Gets the offset from GMT of this {@code TimeZone} for the specified date and
+     * time. The offset includes daylight savings time if the specified date and
+     * time are within the daylight savings time period.
+     *
+     * @param era
+     *            the {@code GregorianCalendar} era, either {@code GregorianCalendar.BC} or
+     *            {@code GregorianCalendar.AD}.
+     * @param year
+     *            the year.
+     * @param month
+     *            the {@code Calendar} month.
+     * @param day
+     *            the day of the month.
+     * @param dayOfWeek
+     *            the {@code Calendar} day of the week.
+     * @param time
+     *            the time of day in milliseconds.
+     * @return the offset from GMT in milliseconds.
+     */
+    abstract public int getOffset(int era, int year, int month, int day,
+            int dayOfWeek, int time);
+
+    /**
+     * Gets the offset for standard time from GMT for this {@code TimeZone}.
+     *
+     * @return the offset from GMT in milliseconds.
+     */
+    abstract public int getRawOffset();
+
+    /**
+     * Gets the {@code TimeZone} with the specified ID.
+     *
+     * @param name
+     *            a time zone string ID.
+     * @return the {@code TimeZone} with the specified ID or null if no {@code TimeZone} with
+     *         the specified ID exists.
+     */
+    public static TTimeZone getTimeZone(String name) {
+        DateTimeZone jodaZone = DateTimeZoneProvider.getTimeZone(name);
+        if (jodaZone != null) {
+            return new TIANATimeZone(jodaZone);
+        }
+        if (name.startsWith("GMT") && name.length() > 3) {
+            char sign = name.charAt(3);
+            if (sign == '+' || sign == '-') {
+                int[] position = new int[1];
+                String formattedName = formatTimeZoneName(name, 4);
+                int hour = parseNumber(formattedName, 4, position);
+                if (hour < 0 || hour > 23) {
+                    return (TTimeZone) GMT.clone();
                 }
-                
-                @Override
-                int getDSTSavings() {
-                    if (useDaylightTime()) {
-                        if (dstSavings==-1) {
-                            TDate now = new TDate();
-                            TDate jan = new TDate(now.getYear(), 0, 1);
-                            TDate jul = new TDate(now.getYear(), 6, 1);
-                            dstSavings = Math.abs(this.getOffset(jan.getTime())-this.getOffset(jul.getTime()));
+                int index = position[0];
+                if (index != -1) {
+                    int raw = hour * 3600000;
+                    if (index < formattedName.length()
+                            && formattedName.charAt(index) == ':') {
+                        int minute = parseNumber(formattedName, index + 1,
+                                position);
+                        if (position[0] == -1 || minute < 0 || minute > 59) {
+                            return (TTimeZone) GMT.clone();
                         }
-                        return dstSavings;
+                        raw += minute * 60000;
+                    } else if (hour >= 30 || index > 6) {
+                        raw = (hour / 100 * 3600000) + (hour % 100 * 60000);
                     }
-                    return 0;
+                    if (sign == '-') {
+                        raw = -raw;
+                    }
+                    return new TIANATimeZone(new FixedDateTimeZone(formattedName, raw, raw));
                 }
-            };
-            tz.ID = ID;
-            return tz;
-        }
-        if (ID.startsWith("GMT")) {
-            if (ID.length()==3) {
-                return GMT;
-            } else if (ID.charAt(3) == '+' || ID.charAt(3) == '-') {
-                String strOffset = ID.substring(4);
-                String normalizedOffset = normalizeGMTOffset(strOffset);
-                if (normalizedOffset == null || "".equals(normalizedOffset)) {
-                    return GMT;
-                }
-                int hours = Integer.parseInt(normalizedOffset.substring(0,2));
-                int minutes = Integer.parseInt(normalizedOffset.substring(3));
-                int offset = hours * 60 * 60 * 1000 + minutes * 60 * 1000;
-                if (ID.charAt(3) == '-') {
-                    offset = -offset;
-                }
-                return new TSimpleTimeZone(offset, "GMT"+ID.charAt(3)+normalizedOffset);
             }
         }
-        return GMT;
+
+        return (TTimeZone) GMT.clone();
+    }
+
+    private static String formatTimeZoneName(String name, int offset) {
+        StringBuilder buf = new StringBuilder();
+        int index = offset, length = name.length();
+        buf.append(name.substring(0, offset));
+
+        while (index < length) {
+            if (Character.digit(name.charAt(index), 10) != -1) {
+                buf.append(name.charAt(index));
+                if ((length - (index + 1)) == 2) {
+                    buf.append(':');
+                }
+            } else if (name.charAt(index) == ':') {
+                buf.append(':');
+            }
+            index++;
+        }
+
+        if (buf.toString().indexOf(":") == -1) {
+            buf.append(':');
+            buf.append("00");
+        }
+
+        if (buf.toString().indexOf(":") == 5) {
+            buf.insert(4, '0');
+        }
+
+        return buf.toString();
     }
 
     /**
-     * Queries if this time zone uses Daylight Savings Time.
+     * Returns whether the specified {@code TimeZone} has the same raw offset as this
+     * {@code TimeZone}.
+     *
+     * @param zone
+     *            a {@code TimeZone}.
+     * @return {@code true} when the {@code TimeZone} have the same raw offset, {@code false}
+     *         otherwise.
      */
-    public abstract boolean useDaylightTime();
+    public boolean hasSameRules(TTimeZone zone) {
+        if (zone == null) {
+            return false;
+        }
+        return getRawOffset() == zone.getRawOffset();
+    }
+
+    /**
+     * Returns whether the specified {@code Date} is in the daylight savings time period for
+     * this {@code TimeZone}.
+     *
+     * @param time
+     *            a {@code Date}.
+     * @return {@code true} when the {@code Date} is in the daylight savings time period, {@code false}
+     *         otherwise.
+     */
+    abstract public boolean inDaylightTime(TDate time);
+
+    private static int parseNumber(String string, int offset, int[] position) {
+        int index = offset, length = string.length(), digit, result = 0;
+        while (index < length
+                && (digit = Character.digit(string.charAt(index), 10)) != -1) {
+            index++;
+            result = result * 10 + digit;
+        }
+        position[0] = index == offset ? -1 : index;
+        return result;
+    }
+
+    /**
+     * Sets the default time zone. If passed {@code null}, then the next
+     * time {@link #getDefault} is called, the default time zone will be
+     * determined. This behavior is slightly different than the canonical
+     * description of this method, but it follows the spirit of it.
+     *
+     * @param timezone
+     *            a {@code TimeZone} object.
+     */
+    public static void setDefault(TTimeZone timezone) {
+        defaultTz = timezone != null ? (TTimeZone)timezone.clone() : null;
+    }
+
+    /**
+     * Sets the ID of this {@code TimeZone}.
+     *
+     * @param name
+     *            a string which is the time zone ID.
+     */
+    public void setID(String name) {
+        if (name == null) {
+            throw new NullPointerException();
+        }
+        id = name;
+    }
+
+    /**
+     * Sets the offset for standard time from GMT for this {@code TimeZone}.
+     *
+     * @param offset
+     *            the offset from GMT in milliseconds.
+     */
+    abstract public void setRawOffset(int offset);
+
+    /**
+     * Returns whether this {@code TimeZone} has a daylight savings time period.
+     *
+     * @return {@code true} if this {@code TimeZone} has a daylight savings time period, {@code false}
+     *         otherwise.
+     */
+    abstract public boolean useDaylightTime();
+
+    /**
+     * Gets the name and the details of the user-selected TimeZone on the
+     * device.
+     *
+     * @param tzinfo
+     *            int array of 10 elements to be filled with the TimeZone
+     *            information. Once filled, the contents of the array are
+     *            formatted as follows: tzinfo[0] -> the timezone offset;
+     *            tzinfo[1] -> the dst adjustment; tzinfo[2] -> the dst start
+     *            hour; tzinfo[3] -> the dst start day of week; tzinfo[4] -> the
+     *            dst start week of month; tzinfo[5] -> the dst start month;
+     *            tzinfo[6] -> the dst end hour; tzinfo[7] -> the dst end day of
+     *            week; tzinfo[8] -> the dst end week of month; tzinfo[9] -> the
+     *            dst end month;
+     * @param isCustomTimeZone
+     *            boolean array of size 1 that indicates if a timezone match is
+     *            found
+     * @return the name of the TimeZone or null if error occurs in native
+     *         method.
+     */
+    private static native String getCustomTimeZone(int[] tzinfo,
+            boolean[] isCustomTimeZone);
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || obj.getClass() != TTimeZone.class) {
+            return false;
+        }
+        TTimeZone other = (TTimeZone)obj;
+        return this.id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id.hashCode();
+    }
 }

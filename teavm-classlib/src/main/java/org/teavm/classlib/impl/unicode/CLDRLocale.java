@@ -27,6 +27,7 @@ import java.util.Map;
 public class CLDRLocale {
     final Map<String, String> languages = new LinkedHashMap<>();
     final Map<String, String> territories = new LinkedHashMap<>();
+    final Map<String, CLDRCurrency> currencies = new LinkedHashMap<>();
     String[] eras;
     String[] dayPeriods;
     String[] months;
@@ -36,6 +37,7 @@ public class CLDRLocale {
     CLDRDateFormats dateFormats;
     CLDRDateFormats timeFormats;
     CLDRDateFormats dateTimeFormats;
+    CLDRTimeZone[] timeZones;
 
     public Map<String, String> getLanguages() {
         return Collections.unmodifiableMap(languages);
@@ -43,6 +45,10 @@ public class CLDRLocale {
 
     public Map<String, String> getTerritories() {
         return Collections.unmodifiableMap(territories);
+    }
+
+    public Map<String, CLDRCurrency> getCurrencies() {
+        return Collections.unmodifiableMap(currencies);
     }
 
     public String[] getEras() {
@@ -79,5 +85,9 @@ public class CLDRLocale {
 
     public CLDRDateFormats getDateTimeFormats() {
         return dateTimeFormats;
+    }
+
+    public CLDRTimeZone[] getTimeZones() {
+        return timeZones.clone();
     }
 }
