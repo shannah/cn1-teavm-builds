@@ -18,7 +18,7 @@
 
   <groupId>org.teavm</groupId>
   <artifactId>teavm</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.0-cn1-001</version>
   <packaging>pom</packaging>
 
   <name>TeaVM</name>
@@ -48,7 +48,7 @@
     <url>https://github.com/shannah/cn1-teavm-builds</url>
     <developerConnection>scm:git:https://github.com/shannah/cn1-teavm-builds.git</developerConnection>
 	<connection>scm:git:https://github.com/shannah/cn1-teavm-builds.git</connection>
-    <tag>HEAD</tag>
+    <tag>1.0.0-cn1-001</tag>
   </scm>
 
   <distributionManagement>
@@ -78,7 +78,7 @@
 
     <teavm.test.incremental>false</teavm.test.incremental>
     <teavm.test.threads>1</teavm.test.threads>
-    <teavm.test.selenium></teavm.test.selenium>
+    <teavm.test.selenium />
     <teavm.test.skip>true</teavm.test.skip>
 
   </properties>
