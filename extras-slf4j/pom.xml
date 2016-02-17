@@ -19,7 +19,7 @@
   <parent>
     <groupId>org.teavm</groupId>
     <artifactId>teavm</artifactId>
-    <version>1.0.0-cn1-002</version>
+    <version>1.0.0-SNAPSHOT</version>
   </parent>
   <artifactId>teavm-extras-slf4j</artifactId>
 
