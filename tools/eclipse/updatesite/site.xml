@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+  <description name="TeaVM update site">
+    TeaVM update site
+  </description>
+  <feature id="teavm-eclipse-feature" version="0.0.0">
+    <category name="teavm-eclipse-caregory"/>
+  </feature>
+  <feature id="teavm-eclipse-m2e-feature" version="0.0.0">
+    <category name="teavm-eclipse-caregory"/>
+  </feature>
+  <category-def name="teavm-eclipse-caregory" label="TeaVM"/>
+</site>
