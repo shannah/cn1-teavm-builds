@@ -17,17 +17,16 @@ package org.teavm.classlib.java.lang;
 
 import static org.junit.Assert.*;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.teavm.junit.TeaVMTestRunner;
 
-/**
- *
- * @author Alexey Andreev
- */
+@RunWith(TeaVMTestRunner.class)
 public class EnumTest {
-    private static enum Foo {
+    private enum Foo {
         A, B, C
     }
 
-    private static enum Bar {
+    private enum Bar {
         D, E
     }
 

@@ -78,12 +78,15 @@
 
     <teavm.test.incremental>false</teavm.test.incremental>
     <teavm.test.threads>1</teavm.test.threads>
-    <teavm.test.selenium />
+
+    <teavm.test.selenium/>
+
     <teavm.test.skip>true</teavm.test.skip>
 
   </properties>
 
   <modules>
+    <module>metaprogramming/api</module>
     <module>core</module>
     <module>classlib</module>
     <module>jso/core</module>
@@ -96,8 +99,10 @@
     <module>tools/cli</module>
     <module>tools/maven</module>
     <module>tools/chrome-rdp</module>
+    <module>tools/junit</module>
     <module>tests</module>
     <module>extras-slf4j</module>
+    <module>metaprogramming/impl</module>
   </modules>
 
   <dependencyManagement>
@@ -286,7 +291,6 @@
                 <encoding>UTF-8</encoding>
                 <consoleOutput>true</consoleOutput>
                 <failsOnError>true</failsOnError>
-                <linkXRef>false</linkXRef>
               </configuration>
               <goals>
                 <goal>check</goal>
@@ -341,12 +345,6 @@
           </plugin>
         </plugins>
       </build>
-    </profile>
-    <profile>
-      <id>enable-samples</id>
-      <modules>
-        <module>teavm-samples</module>
-      </modules>
     </profile>
   </profiles>
 </project>

@@ -21,7 +21,11 @@ import static org.junit.Assert.*;
 import java.util.NoSuchElementException;
 import java.util.StringTokenizer;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.teavm.junit.TeaVMTestRunner;
 
+@SuppressWarnings({"RedundantStringConstructorCall", "RedundantCast"})
+@RunWith(TeaVMTestRunner.class)
 public class StringTokenizerTest {
     @Test
     public void test_ConstructorLjava_lang_StringLjava_lang_String() {
@@ -76,7 +80,7 @@ public class StringTokenizerTest {
             st.nextElement();
             fail("nextElement failed to throw a NoSuchElementException when it should have been out of elements");
         } catch (NoSuchElementException e) {
-            return;
+            // do nothing
         }
     }
 
@@ -92,7 +96,7 @@ public class StringTokenizerTest {
             st.nextToken();
             fail("nextToken failed to throw a NoSuchElementException when it should have been out of elements");
         } catch (NoSuchElementException e) {
-            return;
+            // do nothing
         }
     }
 

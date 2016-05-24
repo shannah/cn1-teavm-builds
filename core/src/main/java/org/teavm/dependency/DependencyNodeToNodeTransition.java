@@ -15,12 +15,8 @@
  */
 package org.teavm.dependency;
 
-/**
- *
- * @author Alexey Andreev
- */
 class DependencyNodeToNodeTransition implements DependencyConsumer {
-    DependencyNode source;
+    private DependencyNode source;
     DependencyNode destination;
     private DependencyTypeFilter filter;
 
@@ -39,6 +35,9 @@ class DependencyNodeToNodeTransition implements DependencyConsumer {
         if (type.getName().startsWith("[")) {
             source.getArrayItem().connect(destination.getArrayItem());
             destination.getArrayItem().connect(source.getArrayItem());
+        }
+        if (type.getName().equals("java.lang.Class")) {
+            source.getClassValueNode().connect(destination.getClassValueNode());
         }
         if (!destination.hasType(type)) {
             destination.propagate(type);

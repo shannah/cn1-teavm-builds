@@ -25,11 +25,19 @@
 
   <packaging>bundle</packaging>
 
+  <name>TeaVM core</name>
+  <description>TeaVM compiler and SPI</description>
+
   <dependencies>
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.teavm</groupId>
+      <artifactId>teavm-metaprogramming-api</artifactId>
+      <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>commons-io</groupId>
@@ -50,9 +58,6 @@
       <optional>true</optional>
     </dependency>
   </dependencies>
-
-  <name>TeaVM core</name>
-  <description>TeaVM compiler and SPI</description>
 
   <build>
     <plugins>
@@ -87,11 +92,6 @@
 
   <reporting>
     <plugins>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <version>2.5.2</version>
-      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
