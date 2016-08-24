@@ -15,10 +15,6 @@
  */
 package org.teavm.classlib.java.util;
 
-/**
- *
- * @author Alexey Andreev
- */
 public interface TestService {
     void foo();
 }

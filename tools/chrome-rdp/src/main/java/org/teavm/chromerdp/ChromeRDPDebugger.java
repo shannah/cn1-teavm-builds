@@ -19,10 +19,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -30,14 +31,30 @@ import org.codehaus.jackson.JsonNode;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.teavm.chromerdp.data.*;
-import org.teavm.chromerdp.messages.*;
-import org.teavm.debugging.javascript.*;
+import org.teavm.chromerdp.data.CallArgumentDTO;
+import org.teavm.chromerdp.data.CallFrameDTO;
+import org.teavm.chromerdp.data.LocationDTO;
+import org.teavm.chromerdp.data.Message;
+import org.teavm.chromerdp.data.PropertyDescriptorDTO;
+import org.teavm.chromerdp.data.RemoteObjectDTO;
+import org.teavm.chromerdp.data.Response;
+import org.teavm.chromerdp.data.ScopeDTO;
+import org.teavm.chromerdp.messages.CallFunctionCommand;
+import org.teavm.chromerdp.messages.CallFunctionResponse;
+import org.teavm.chromerdp.messages.ContinueToLocationCommand;
+import org.teavm.chromerdp.messages.GetPropertiesCommand;
+import org.teavm.chromerdp.messages.GetPropertiesResponse;
+import org.teavm.chromerdp.messages.RemoveBreakpointCommand;
+import org.teavm.chromerdp.messages.ScriptParsedNotification;
+import org.teavm.chromerdp.messages.SetBreakpointCommand;
+import org.teavm.chromerdp.messages.SetBreakpointResponse;
+import org.teavm.chromerdp.messages.SuspendedNotification;
+import org.teavm.debugging.javascript.JavaScriptBreakpoint;
+import org.teavm.debugging.javascript.JavaScriptCallFrame;
+import org.teavm.debugging.javascript.JavaScriptDebugger;
+import org.teavm.debugging.javascript.JavaScriptDebuggerListener;
+import org.teavm.debugging.javascript.JavaScriptLocation;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeConsumer {
     private static final Logger logger = LoggerFactory.getLogger(ChromeRDPDebugger.class);
     private static final Object dummy = new Object();
@@ -50,7 +67,8 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
     private ConcurrentMap<String, String> scriptIds = new ConcurrentHashMap<>();
     private boolean suspended;
     private ObjectMapper mapper = new ObjectMapper();
-    private ConcurrentMap<Integer, ResponseHandler> responseHandlers = new ConcurrentHashMap<>();
+    private ConcurrentMap<Integer, ResponseHandler<Object>> responseHandlers = new ConcurrentHashMap<>();
+    private ConcurrentMap<Integer, CompletableFuture<Object>> futures = new ConcurrentHashMap<>();
     private AtomicInteger messageIdGenerator = new AtomicInteger();
     private Lock breakpointLock = new ReentrantLock();
 
@@ -86,50 +104,45 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         }
     }
 
-    private ChromeRDPExchangeListener exchangeListener = new ChromeRDPExchangeListener() {
-        @Override public void received(String messageText) throws IOException {
-            receiveMessage(messageText);
-        }
-    };
+    private ChromeRDPExchangeListener exchangeListener = messageText -> receiveMessage(messageText);
 
     private void receiveMessage(final String messageText) {
-        new Thread() {
-            @Override public void run() {
-                try {
-                    JsonNode jsonMessage = mapper.readTree(messageText);
-                    if (jsonMessage.has("id")) {
-                        Response response = mapper.reader(Response.class).readValue(jsonMessage);
-                        if (response.getError() != null) {
-                            if (logger.isWarnEnabled()) {
-                                logger.warn("Error message #{} received from browser: {}", jsonMessage.get("id"),
-                                        response.getError().toString());
-                            }
-                        }
-                        responseHandlers.remove(response.getId()).received(response.getResult());
-                    } else {
-                        Message message = mapper.reader(Message.class).readValue(messageText);
-                        if (message.getMethod() == null) {
-                            return;
-                        }
-                        switch (message.getMethod()) {
-                            case "Debugger.paused":
-                                firePaused(parseJson(SuspendedNotification.class, message.getParams()));
-                                break;
-                            case "Debugger.resumed":
-                                fireResumed();
-                                break;
-                            case "Debugger.scriptParsed":
-                                scriptParsed(parseJson(ScriptParsedNotification.class, message.getParams()));
-                                break;
+        new Thread(() -> {
+            try {
+                JsonNode jsonMessage = mapper.readTree(messageText);
+                if (jsonMessage.has("id")) {
+                    Response response = mapper.reader(Response.class).readValue(jsonMessage);
+                    if (response.getError() != null) {
+                        if (logger.isWarnEnabled()) {
+                            logger.warn("Error message #{} received from browser: {}", jsonMessage.get("id"),
+                                    response.getError().toString());
                         }
                     }
-                } catch (Exception e) {
-                    if (logger.isErrorEnabled()) {
-                        logger.error("Error receiving message from Google Chrome", e);
+                    CompletableFuture<Object> future = futures.remove(response.getId());
+                    responseHandlers.remove(response.getId()).received(response.getResult(), future);
+                } else {
+                    Message message = mapper.reader(Message.class).readValue(messageText);
+                    if (message.getMethod() == null) {
+                        return;
+                    }
+                    switch (message.getMethod()) {
+                        case "Debugger.paused":
+                            firePaused(parseJson(SuspendedNotification.class, message.getParams()));
+                            break;
+                        case "Debugger.resumed":
+                            fireResumed();
+                            break;
+                        case "Debugger.scriptParsed":
+                            scriptParsed(parseJson(ScriptParsedNotification.class, message.getParams()));
+                            break;
                     }
                 }
+            } catch (Exception e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error("Error receiving message from Google Chrome", e);
+                }
             }
-        }.start();
+        }).start();
     }
 
     private synchronized void firePaused(SuspendedNotification params) {
@@ -332,24 +345,21 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         if (logger.isInfoEnabled()) {
             logger.info("Setting breakpoint at {}, message id is ", breakpoint.getLocation(), message.getId());
         }
-        ResponseHandler handler = new ResponseHandler() {
-            @Override public void received(JsonNode node) throws IOException {
-                if (node != null) {
-                    SetBreakpointResponse response = mapper.reader(SetBreakpointResponse.class).readValue(node);
-                    breakpoint.chromeId = response.getBreakpointId();
-                } else {
-                    if (logger.isWarnEnabled()) {
-                        logger.warn("Error setting breakpoint at {}, message id is {}",
-                                breakpoint.getLocation(), message.getId());
-                    }
-                    breakpoint.chromeId = null;
+        setResponseHandler(message.getId(), (node, out) -> {
+            if (node != null) {
+                SetBreakpointResponse response = mapper.reader(SetBreakpointResponse.class).readValue(node);
+                breakpoint.chromeId = response.getBreakpointId();
+            } else {
+                if (logger.isWarnEnabled()) {
+                    logger.warn("Error setting breakpoint at {}, message id is {}",
+                            breakpoint.getLocation(), message.getId());
                 }
-                for (JavaScriptDebuggerListener listener : getListeners()) {
-                    listener.breakpointChanged(breakpoint);
-                }
+                breakpoint.chromeId = null;
             }
-        };
-        responseHandlers.put(message.getId(), handler);
+            for (JavaScriptDebuggerListener listener : getListeners()) {
+                listener.breakpointChanged(breakpoint);
+            }
+        });
         sendMessage(message);
     }
 
@@ -364,16 +374,18 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         params.setObjectId(scopeId);
         params.setOwnProperties(true);
         message.setParams(mapper.valueToTree(params));
-        final BlockingQueue<List<RDPLocalVariable>> sync = new LinkedTransferQueue<>();
-        responseHandlers.put(message.getId(), new ResponseHandler() {
-            @Override public void received(JsonNode node) throws IOException {
+        CompletableFuture<List<RDPLocalVariable>> sync = setResponseHandler(message.getId(), (node, out) -> {
+            if (node == null) {
+                out.complete(Collections.emptyList());
+            } else {
                 GetPropertiesResponse response = mapper.reader(GetPropertiesResponse.class).readValue(node);
-                sync.add(parseProperties(response.getResult()));
+                out.complete(parseProperties(response.getResult()));
             }
         });
         sendMessage(message);
+
         try {
-            return sync.take();
+            return read(sync);
         } catch (InterruptedException e) {
             return Collections.emptyList();
         }
@@ -393,21 +405,19 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         params.setArguments(new CallArgumentDTO[] { arg });
         params.setFunctionDeclaration("$dbg_class");
         message.setParams(mapper.valueToTree(params));
-        final BlockingQueue<String> sync = new LinkedTransferQueue<>();
-        responseHandlers.put(message.getId(), new ResponseHandler() {
-            @Override public void received(JsonNode node) throws IOException {
-                if (node == null) {
-                    sync.add("");
-                } else {
-                    CallFunctionResponse response = mapper.reader(CallFunctionResponse.class).readValue(node);
-                    RemoteObjectDTO result = response.getResult();
-                    sync.add(result.getValue() != null ? result.getValue().getTextValue() : "");
-                }
+
+        CompletableFuture<String> sync = setResponseHandler(message.getId(), (node, out) -> {
+            if (node == null) {
+                out.complete("");
+            } else {
+                CallFunctionResponse response = mapper.reader(CallFunctionResponse.class).readValue(node);
+                RemoteObjectDTO result = response.getResult();
+                out.complete(result.getValue() != null ? result.getValue().getTextValue() : "");
             }
         });
         sendMessage(message);
         try {
-            String result = sync.take();
+            String result = read(sync);
             return result.isEmpty() ? null : result;
         } catch (InterruptedException e) {
             return null;
@@ -428,22 +438,19 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         params.setArguments(new CallArgumentDTO[] { arg });
         params.setFunctionDeclaration("$dbg_repr");
         message.setParams(mapper.valueToTree(params));
-        final BlockingQueue<RepresentationWrapper> sync = new LinkedTransferQueue<>();
-        responseHandlers.put(message.getId(), new ResponseHandler() {
-            @Override public void received(JsonNode node) throws IOException {
-                if (node == null) {
-                    sync.add(new RepresentationWrapper(null));
-                } else {
-                    CallFunctionResponse response = mapper.reader(CallFunctionResponse.class).readValue(node);
-                    RemoteObjectDTO result = response.getResult();
-                    sync.add(new RepresentationWrapper(result.getValue() != null
-                            ? result.getValue().getTextValue() : null));
-                }
+        CompletableFuture<RepresentationWrapper> sync = setResponseHandler(message.getId(), (node, out) -> {
+            if (node == null) {
+                out.complete(new RepresentationWrapper(null));
+            } else {
+                CallFunctionResponse response = mapper.reader(CallFunctionResponse.class).readValue(node);
+                RemoteObjectDTO result = response.getResult();
+                out.complete(new RepresentationWrapper(result.getValue() != null
+                        ? result.getValue().getTextValue() : null));
             }
         });
         sendMessage(message);
         try {
-            RepresentationWrapper result = sync.take();
+            RepresentationWrapper result = read(sync);
             return result.repr;
         } catch (InterruptedException e) {
             return null;
@@ -510,14 +517,18 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         RDPValue thisObject = null;
         RDPValue closure = null;
         for (ScopeDTO scope : dto.getScopeChain()) {
-            if (scope.getType().equals("local")) {
-                scopeId = scope.getObject().getObjectId();
-            } else if (scope.getType().equals("closure")) {
-                closure = new RDPValue(this, scope.getObject().getDescription(), scope.getObject().getType(),
-                        scope.getObject().getObjectId(), true);
-            } else if (scope.getType().equals("global")) {
-                thisObject = new RDPValue(this, scope.getObject().getDescription(), scope.getObject().getType(),
-                        scope.getObject().getObjectId(), true);
+            switch (scope.getType()) {
+                case "local":
+                    scopeId = scope.getObject().getObjectId();
+                    break;
+                case "closure":
+                    closure = new RDPValue(this, scope.getObject().getDescription(), scope.getObject().getType(),
+                            scope.getObject().getObjectId(), true);
+                    break;
+                case "global":
+                    thisObject = new RDPValue(this, scope.getObject().getDescription(), scope.getObject().getType(),
+                            scope.getObject().getObjectId(), true);
+                    break;
             }
         }
         return new RDPCallFrame(this, dto.getCallFrameId(), map(dto.getLocation()), new RDPScope(this, scopeId),
@@ -536,7 +547,30 @@ public class ChromeRDPDebugger implements JavaScriptDebugger, ChromeRDPExchangeC
         return dto;
     }
 
-    interface ResponseHandler {
-        void received(JsonNode node) throws IOException;
+    @SuppressWarnings("unchecked")
+    private <T> CompletableFuture<T> setResponseHandler(int messageId, ResponseHandler<T> handler) {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        futures.put(messageId, (CompletableFuture<Object>) future);
+        responseHandlers.put(messageId, (ResponseHandler<Object>) handler);
+        return future;
+    }
+
+    interface ResponseHandler<T> {
+        void received(JsonNode node, CompletableFuture<T> out) throws IOException;
+    }
+
+    private static <T> T read(Future<T> future) throws InterruptedException {
+        try {
+            return future.get();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            } else if (cause instanceof Error) {
+                throw (Error) cause;
+            } else {
+                throw new RuntimeException(cause);
+            }
+        }
     }
 }

@@ -15,25 +15,34 @@
  */
 package org.teavm.parsing;
 
+import com.carrotsearch.hppc.IntIntMap;
+import com.carrotsearch.hppc.IntIntOpenHashMap;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.JSRInlinerAdapter;
 import org.objectweb.asm.tree.*;
+import org.teavm.common.Graph;
+import org.teavm.common.GraphUtils;
 import org.teavm.model.*;
+import org.teavm.model.util.DefinitionExtractor;
+import org.teavm.model.util.PhiUpdater;
+import org.teavm.model.util.ProgramUtils;
 import org.teavm.optimization.UnreachableBasicBlockEliminator;
 
-/**
- *
- * @author Alexey Andreev
- */
-public final class Parser {
-    private Parser() {
+public class Parser {
+    private ReferenceCache referenceCache;
+
+    public Parser(ReferenceCache referenceCache) {
+        this.referenceCache = referenceCache;
     }
 
-    public static MethodHolder parseMethod(MethodNode node, String className, String fileName) {
+    public MethodHolder parseMethod(MethodNode node, String className, String fileName) {
         MethodNode nodeWithoutJsr = new MethodNode(Opcodes.ASM5, node.access, node.name, node.desc, node.signature,
                 node.exceptions.toArray(new String[0]));
         JSRInlinerAdapter adapter = new JSRInlinerAdapter(nodeWithoutJsr, node.access, node.name, node.desc,
@@ -43,13 +52,17 @@ public final class Parser {
         ValueType[] signature = MethodDescriptor.parseSignature(node.desc);
         MethodHolder method = new MethodHolder(node.name, signature);
         parseModifiers(node.access, method);
-        ProgramParser programParser = new ProgramParser();
+
+        ProgramParser programParser = new ProgramParser(referenceCache);
         programParser.setFileName(fileName);
         Program program = programParser.parse(node, className);
         new UnreachableBasicBlockEliminator().optimize(program);
-        SSATransformer ssaProducer = new SSATransformer();
-        ssaProducer.transformToSSA(program, programParser, method.getParameterTypes());
+        PhiUpdater phiUpdater = new PhiUpdater();
+        Variable[] argumentMapping = applySignature(program, method.getParameterTypes());
+        phiUpdater.updatePhis(program, argumentMapping);
         method.setProgram(program);
+        applyDebugNames(program, phiUpdater, programParser, argumentMapping);
+
         parseAnnotations(method.getAnnotations(), node.visibleAnnotations, node.invisibleAnnotations);
         while (program.variableCount() <= method.parameterCount()) {
             program.createVariable();
@@ -65,7 +78,136 @@ public final class Parser {
         return method;
     }
 
-    public static ClassHolder parseClass(ClassNode node) {
+    private void applyDebugNames(Program program, PhiUpdater phiUpdater, ProgramParser parser,
+            Variable[] argumentMapping) {
+        if (program.basicBlockCount() == 0) {
+            return;
+        }
+
+        IntIntMap[] blockEntryVariableMappings = getBlockEntryVariableMappings(program, phiUpdater, argumentMapping);
+
+        DefinitionExtractor defExtractor = new DefinitionExtractor();
+        Map<Integer, String> debugNames = new HashMap<>();
+        for (int i = 0; i < program.basicBlockCount(); ++i) {
+            BasicBlock block = program.basicBlockAt(i);
+            IntIntMap varMap = blockEntryVariableMappings[i];
+            for (Instruction insn : block.getInstructions()) {
+                insn.acceptVisitor(defExtractor);
+                Map<Integer, String> newDebugNames = parser.getDebugNames(insn);
+                if (newDebugNames != null) {
+                    debugNames = newDebugNames;
+                }
+                for (Variable definedVar : defExtractor.getDefinedVariables()) {
+                    int sourceVar = phiUpdater.getSourceVariable(definedVar.getIndex());
+                    if (sourceVar >= 0) {
+                        varMap.put(sourceVar, definedVar.getIndex());
+                    }
+                }
+                for (Map.Entry<Integer, String> debugName : debugNames.entrySet()) {
+                    int receiver = varMap.getOrDefault(debugName.getKey(), -1);
+                    if (receiver >= 0) {
+                        program.variableAt(receiver).getDebugNames().add(debugName.getValue());
+                    }
+                }
+            }
+        }
+    }
+
+    private IntIntMap[] getBlockEntryVariableMappings(Program program, PhiUpdater phiUpdater,
+            Variable[] argumentMapping) {
+        class Step {
+            int node;
+            IntIntMap varMap;
+
+            Step(int node, IntIntMap varMap) {
+                this.node = node;
+                this.varMap = varMap;
+            }
+        }
+
+        IntIntMap[] result = new IntIntMap[program.basicBlockCount()];
+        DefinitionExtractor defExtractor = new DefinitionExtractor();
+        Graph cfg = ProgramUtils.buildControlFlowGraph(program);
+        Graph dom = GraphUtils.buildDominatorGraph(GraphUtils.buildDominatorTree(cfg), cfg.size());
+        Step[] stack = new Step[program.basicBlockCount()];
+        int top = 0;
+
+        IntIntOpenHashMap entryVarMap = new IntIntOpenHashMap();
+        for (int i = 0; i < argumentMapping.length; ++i) {
+            Variable arg = argumentMapping[i];
+            if (arg != null) {
+                entryVarMap.put(i, arg.getIndex());
+            }
+        }
+        stack[top++] = new Step(0, entryVarMap);
+
+        while (top > 0) {
+            Step step = stack[--top];
+            int node = step.node;
+            IntIntMap varMap = new IntIntOpenHashMap(step.varMap);
+            BasicBlock block = program.basicBlockAt(node);
+
+            for (TryCatchJoint joint : block.getTryCatchJoints()) {
+                int receiver = joint.getReceiver().getIndex();
+                int sourceVar = phiUpdater.getSourceVariable(receiver);
+                if (sourceVar >= 0) {
+                    varMap.put(sourceVar, receiver);
+                }
+            }
+            for (Phi phi : block.getPhis()) {
+                int receiver = phi.getReceiver().getIndex();
+                int sourceVar = phiUpdater.getSourceVariable(receiver);
+                if (sourceVar >= 0) {
+                    varMap.put(sourceVar, receiver);
+                }
+            }
+
+            result[node] = new IntIntOpenHashMap(varMap);
+
+            for (Instruction insn : block.getInstructions()) {
+                insn.acceptVisitor(defExtractor);
+                for (Variable definedVar : defExtractor.getDefinedVariables()) {
+                    int sourceVar = phiUpdater.getSourceVariable(definedVar.getIndex());
+                    if (sourceVar >= 0) {
+                        varMap.put(sourceVar, definedVar.getIndex());
+                    }
+                }
+            }
+
+            for (int successor : dom.outgoingEdges(node)) {
+                stack[top++] = new Step(successor, new IntIntOpenHashMap(varMap));
+            }
+        }
+
+        return result;
+    }
+
+    private Variable[] applySignature(Program program, ValueType[] arguments) {
+        if (program.variableCount() == 0) {
+            return new Variable[0];
+        }
+
+        Variable[] variableMap = new Variable[program.variableCount()];
+        int index = 0;
+        variableMap[index] = program.variableAt(index);
+        ++index;
+        for (int i = 0; i < arguments.length; ++i) {
+            variableMap[index] = program.variableAt(i + 1);
+            ++index;
+            ValueType arg = arguments[i];
+            if (arg instanceof ValueType.Primitive) {
+                PrimitiveType kind = ((ValueType.Primitive) arg).getKind();
+                if (kind == PrimitiveType.LONG || kind == PrimitiveType.DOUBLE) {
+                    variableMap[index] = variableMap[index - 1];
+                    ++index;
+                }
+            }
+        }
+
+        return Arrays.copyOf(variableMap, index);
+    }
+
+    public ClassHolder parseClass(ClassNode node) {
         ClassHolder cls = new ClassHolder(node.name.replace('/', '.'));
         parseModifiers(node.access, cls);
         if (node.superName != null) {
@@ -99,7 +241,7 @@ public final class Parser {
         return cls;
     }
 
-    public static FieldHolder parseField(FieldNode node) {
+    public FieldHolder parseField(FieldNode node) {
         FieldHolder field = new FieldHolder(node.name);
         field.setType(ValueType.parse(node.desc));
         field.setInitialValue(node.value);
@@ -108,7 +250,7 @@ public final class Parser {
         return field;
     }
 
-    public static void parseModifiers(int access, ElementHolder member) {
+    public void parseModifiers(int access, ElementHolder member) {
         if ((access & Opcodes.ACC_PRIVATE) != 0) {
             member.setLevel(AccessLevel.PRIVATE);
         } else if ((access & Opcodes.ACC_PROTECTED) != 0) {
@@ -167,7 +309,7 @@ public final class Parser {
         }
     }
 
-    private static void parseAnnotations(AnnotationContainer annotations, List<AnnotationNode> visibleAnnotations,
+    private void parseAnnotations(AnnotationContainer annotations, List<AnnotationNode> visibleAnnotations,
             List<AnnotationNode> invisibleAnnotations) {
         List<Object> annotNodes = new ArrayList<>();
         if (visibleAnnotations != null) {
@@ -189,7 +331,7 @@ public final class Parser {
         }
     }
 
-    private static void parseAnnotationValues(AnnotationHolder annot, List<Object> values) {
+    private void parseAnnotationValues(AnnotationHolder annot, List<Object> values) {
         if (values == null) {
             return;
         }
@@ -200,7 +342,7 @@ public final class Parser {
         }
     }
 
-    private static AnnotationValue parseAnnotationValue(Object value) {
+    private AnnotationValue parseAnnotationValue(Object value) {
         if (value instanceof String[]) {
             String[] enumInfo = (String[]) value;
             ValueType.Object object = (ValueType.Object) ValueType.parse(enumInfo[0]);

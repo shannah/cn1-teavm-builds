@@ -44,6 +44,7 @@ import org.teavm.model.PhiReader;
 import org.teavm.model.Program;
 import org.teavm.model.RuntimeConstant;
 import org.teavm.model.TryCatchBlockReader;
+import org.teavm.model.TryCatchJointReader;
 import org.teavm.model.ValueType;
 import org.teavm.model.VariableReader;
 import org.teavm.model.emit.ProgramEmitter;
@@ -136,10 +137,22 @@ class DependencyGraphBuilder {
             BasicBlockReader block = program.basicBlockAt(i);
             currentExceptionConsumer = createExceptionConsumer(dep, block);
             block.readAllInstructions(reader);
+            for (TryCatchJointReader joint : block.readTryCatchJoints()) {
+                DependencyNode receiverNode = nodes[joint.getReceiver().getIndex()];
+                if (receiverNode == null) {
+                    continue;
+                }
+                for (VariableReader source : joint.readSourceVariables()) {
+                    DependencyNode sourceNode = nodes[source.getIndex()];
+                    if (sourceNode != null) {
+                        sourceNode.connect(receiverNode);
+                    }
+                }
+            }
             for (PhiReader phi : block.readPhis()) {
+                DependencyNode receiverNode = nodes[phi.getReceiver().getIndex()];
                 for (IncomingReader incoming : phi.readIncomings()) {
                     DependencyNode incomingNode = nodes[incoming.getValue().getIndex()];
-                    DependencyNode receiverNode = nodes[phi.getReceiver().getIndex()];
                     if (incomingNode != null && receiverNode != null) {
                         incomingNode.connect(receiverNode);
                     }
@@ -351,8 +364,7 @@ class DependencyGraphBuilder {
                 return;
             }
             MethodReference methodRef = new MethodReference(className, methodDesc);
-            final MethodDependency methodDep = checker.linkMethod(methodRef,
-                    new CallLocation(caller.getMethod(), location));
+            MethodDependency methodDep = checker.linkMethod(methodRef, new CallLocation(caller.getMethod(), location));
             if (!methodDep.isMissing() && knownMethods.add(methodRef)) {
                 methodDep.use();
                 DependencyNode[] targetParams = methodDep.getVariables();
@@ -388,6 +400,19 @@ class DependencyGraphBuilder {
             DependencyNode node = nodes[receiver.getIndex()];
             if (node != null) {
                 node.propagate(dependencyChecker.getType("java.lang.Class"));
+                if (!(cst instanceof ValueType.Primitive)) {
+                    StringBuilder sb = new StringBuilder();
+                    while (cst instanceof ValueType.Array) {
+                        cst = ((ValueType.Array) cst).getItemType();
+                        sb.append('[');
+                    }
+                    if (cst instanceof ValueType.Object) {
+                        sb.append(((ValueType.Object) cst).getClassName());
+                    } else {
+                        sb.append(cst.toString());
+                    }
+                    node.getClassValueNode().propagate(dependencyChecker.getType(sb.toString()));
+                }
             }
             while (cst instanceof ValueType.Array) {
                 cst = ((ValueType.Array) cst).getItemType();
@@ -610,7 +635,7 @@ class DependencyGraphBuilder {
             DependencyNode arrayNode = nodes[array.getIndex()];
             final DependencyNode receiverNode = nodes[receiver.getIndex()];
             if (arrayNode != null && receiverNode != null) {
-                arrayNode.addConsumer(type -> receiverNode.propagate(type));
+                arrayNode.addConsumer(receiverNode::propagate);
                 arrayNode.getArrayItem().connect(receiverNode.getArrayItem());
             }
         }
@@ -655,6 +680,10 @@ class DependencyGraphBuilder {
                     case VIRTUAL:
                         invokeVirtual(receiver, instance, method, arguments);
                         break;
+                }
+                if (method.getName().equals("getClass") && method.parameterCount() == 0
+                        && method.getReturnType().isObject(Class.class) && receiver != null) {
+                    nodes[instance.getIndex()].connect(nodes[receiver.getIndex()].getClassValueNode());
                 }
             }
         }

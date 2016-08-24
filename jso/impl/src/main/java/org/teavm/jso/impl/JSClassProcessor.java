@@ -54,16 +54,13 @@ import org.teavm.model.ClassReader;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.ElementModifier;
 import org.teavm.model.FieldHolder;
-import org.teavm.model.Incoming;
 import org.teavm.model.Instruction;
 import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
-import org.teavm.model.Phi;
 import org.teavm.model.Program;
-import org.teavm.model.TryCatchBlock;
 import org.teavm.model.ValueType;
 import org.teavm.model.Variable;
 import org.teavm.model.instructions.AssignInstruction;
@@ -82,15 +79,15 @@ import org.teavm.model.util.ProgramUtils;
  * @author Alexey Andreev
  */
 class JSClassProcessor {
-    private ClassReaderSource classSource;
-    private JSBodyRepository repository;
-    private JavaInvocationProcessor javaInvocationProcessor;
+    private final ClassReaderSource classSource;
+    private final JSBodyRepository repository;
+    private final JavaInvocationProcessor javaInvocationProcessor;
     private Program program;
-    private List<Instruction> replacement = new ArrayList<>();
-    private JSTypeHelper typeHelper;
-    private Diagnostics diagnostics;
+    private final List<Instruction> replacement = new ArrayList<>();
+    private final JSTypeHelper typeHelper;
+    private final Diagnostics diagnostics;
     private int methodIndexGenerator;
-    private Map<MethodReference, MethodReader> overridenMethodCache = new HashMap<>();
+    private final Map<MethodReference, MethodReader> overridenMethodCache = new HashMap<>();
 
     public JSClassProcessor(ClassReaderSource classSource, JSBodyRepository repository, Diagnostics diagnostics) {
         this.classSource = classSource;
@@ -170,32 +167,15 @@ class JSClassProcessor {
                 callerMethod.getModifiers().add(ElementModifier.STATIC);
                 final Program program = ProgramUtils.copy(method.getProgram());
                 program.createVariable();
-                InstructionVariableMapper variableMapper = new InstructionVariableMapper() {
-                    @Override protected Variable map(Variable var) {
-                        return program.variableAt(var.getIndex() + 1);
-                    }
-                };
+                InstructionVariableMapper variableMapper = new InstructionVariableMapper(var ->
+                         program.variableAt(var.getIndex() + 1));
                 for (int i = program.variableCount() - 1; i > 0; --i) {
                     program.variableAt(i).getDebugNames().addAll(program.variableAt(i - 1).getDebugNames());
                     program.variableAt(i - 1).getDebugNames().clear();
                 }
                 for (int i = 0; i < program.basicBlockCount(); ++i) {
                     BasicBlock block = program.basicBlockAt(i);
-                    for (Instruction insn : block.getInstructions()) {
-                        insn.acceptVisitor(variableMapper);
-                    }
-                    for (Phi phi : block.getPhis()) {
-                        phi.setReceiver(program.variableAt(phi.getReceiver().getIndex() + 1));
-                        for (Incoming incoming : phi.getIncomings()) {
-                            incoming.setValue(program.variableAt(incoming.getValue().getIndex() + 1));
-                        }
-                    }
-                    for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
-                        if (tryCatch.getExceptionVariable() != null) {
-                            tryCatch.setExceptionVariable(program.variableAt(
-                                    tryCatch.getExceptionVariable().getIndex() + 1));
-                        }
-                    }
+                    variableMapper.apply(block);
                 }
                 callerMethod.setProgram(program);
                 ModelUtils.copyAnnotations(method.getAnnotations(), callerMethod.getAnnotations());
@@ -277,7 +257,7 @@ class JSClassProcessor {
         }
     }
 
-    static ValueType[] getStaticSignature(MethodReference method) {
+    private static ValueType[] getStaticSignature(MethodReference method) {
         ValueType[] signature = method.getSignature();
         ValueType[] staticSignature = new ValueType[signature.length + 1];
         for (int i = 0; i < signature.length; ++i) {
@@ -287,7 +267,7 @@ class JSClassProcessor {
         return staticSignature;
     }
 
-    public void processProgram(MethodHolder methodToProcess) {
+    void processProgram(MethodHolder methodToProcess) {
         program = methodToProcess.getProgram();
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock block = program.basicBlockAt(i);
@@ -329,11 +309,11 @@ class JSClassProcessor {
         }
 
         if (method.getProgram() != null && method.getProgram().basicBlockCount() > 0) {
-            MethodReader overriden = getOverridenMethod(method);
-            if (overriden != null) {
+            MethodReader overridden = getOverridenMethod(method);
+            if (overridden != null) {
                 diagnostics.error(callLocation, "JS final method {{m0}} overrides {{m1}}. "
                         + "Overriding final method of overlay types is prohibited.",
-                        method.getReference(), overriden.getReference());
+                        method.getReference(), overridden.getReference());
             }
             if (method.getProgram() != null && method.getProgram().basicBlockCount() > 0) {
                 invoke.setMethod(new MethodReference(method.getOwnerName(), method.getName() + "$static",
@@ -545,7 +525,7 @@ class JSClassProcessor {
         int jsParamCount = bodyAnnot.getValue("params").getList().size();
         if (methodToProcess.parameterCount() != jsParamCount) {
             diagnostics.error(location, "JSBody method {{m0}} declares " + methodToProcess.parameterCount()
-                    + " parameters, but annotation specifies " + jsParamCount, methodToProcess);
+                    + " parameters, but annotation specifies " + jsParamCount, methodToProcess.getReference());
             return;
         }
 
@@ -554,11 +534,8 @@ class JSClassProcessor {
         if (!isStatic) {
             ++paramCount;
         }
-        ValueType[] paramTypes = new ValueType[paramCount];
-        int offset = 0;
         if (!isStatic) {
             ValueType paramType = ValueType.object(methodToProcess.getOwnerName());
-            paramTypes[offset++] = paramType;
             if (!typeHelper.isSupportedType(paramType)) {
                 diagnostics.error(location, "Non-static JSBody method {{m0}} is owned by non-JS class {{c1}}",
                         methodToProcess.getReference(), methodToProcess.getOwnerName());
@@ -571,9 +548,6 @@ class JSClassProcessor {
         }
 
         // generate parameter types for proxy method
-        for (int i = 0; i < methodToProcess.parameterCount(); ++i) {
-            paramTypes[offset++] = methodToProcess.parameterType(i);
-        }
         ValueType[] proxyParamTypes = new ValueType[paramCount + 1];
         for (int i = 0; i < paramCount; ++i) {
             proxyParamTypes[i] = ValueType.parse(JSObject.class);
@@ -587,8 +561,8 @@ class JSClassProcessor {
                 methodToProcess.getName() + "$js_body$_" + methodIndexGenerator++, proxyParamTypes);
         String script = bodyAnnot.getValue("script").getString();
         String[] parameterNames = bodyAnnot.getValue("params").getList().stream()
-                .map(ann -> ann.getString())
-                .toArray(sz -> new String[sz]);
+                .map(AnnotationValue::getString)
+                .toArray(String[]::new);
 
         // Parse JS script
         TeaVMErrorReporter errorReporter = new TeaVMErrorReporter(diagnostics,
@@ -598,15 +572,13 @@ class JSClassProcessor {
         env.setLanguageVersion(Context.VERSION_1_8);
         env.setIdeMode(true);
         JSParser parser = new JSParser(env, errorReporter);
-        //parser.enterFunction();
         AstRoot rootNode;
         try {
             rootNode = parser.parse(new StringReader("function(){" + script + "}"), null, 0);
         } catch (IOException e) {
-            throw new RuntimeException("IO Error occured", e);
+            throw new RuntimeException("IO Error occurred", e);
         }
         AstNode body = ((FunctionNode) rootNode.getFirstChild()).getBody();
-        //parser.exitFunction();
 
         repository.methodMap.put(methodToProcess.getReference(), proxyMethod);
         if (errorReporter.hasErrors()) {

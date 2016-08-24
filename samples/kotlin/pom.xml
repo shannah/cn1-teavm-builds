@@ -30,7 +30,7 @@
   <description>A sample application written in Kotlin and compiled by TeaVM</description>
 
   <properties>
-    <kotlin.version>0.11.91.1</kotlin.version>
+    <kotlin.version>1.0.1-2</kotlin.version>
   </properties>
 
   <dependencies>
@@ -61,7 +61,6 @@
 
   <build>
     <sourceDirectory>${project.basedir}/src/main/kotlin</sourceDirectory>
-    <testSourceDirectory>${project.basedir}/src/test/kotlin</testSourceDirectory>
 
     <plugins>
       <plugin>
@@ -97,7 +96,7 @@
             </goals>
             <configuration>
               <targetDirectory>${project.build.directory}/generated/js/teavm</targetDirectory>
-              <mainClass>org.teavm.samples.kotlin.KotlinPackage</mainClass>
+              <mainClass>org.teavm.samples.kotlin.HelloKt</mainClass>
               <runtime>SEPARATE</runtime>
               <minifying>false</minifying>
               <debugInformationGenerated>true</debugInformationGenerated>

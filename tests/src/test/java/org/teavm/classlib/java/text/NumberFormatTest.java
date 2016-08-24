@@ -4,13 +4,15 @@ import static org.junit.Assert.*;
 import java.text.NumberFormat;
 import java.util.Currency;
 import java.util.Locale;
-import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.teavm.junit.SkipJVM;
+import org.teavm.junit.TeaVMProperties;
+import org.teavm.junit.TeaVMProperty;
+import org.teavm.junit.TeaVMTestRunner;
 
-/**
- *
- * @author Alexey Andreev
- */
+@RunWith(TeaVMTestRunner.class)
+@TeaVMProperties(@TeaVMProperty(key = "java.util.Locale.available", value = "en, en_US, en_GB, ru, ru_RU"))
 public class NumberFormatTest {
     @Test
     public void formatsNumber() {
@@ -33,7 +35,7 @@ public class NumberFormatTest {
     }
 
     @Test
-    @Ignore
+    @SkipJVM
     public void formatsPercent() {
         NumberFormat format = NumberFormat.getPercentInstance(new Locale("en", "US"));
         assertEquals("12,345,679%", format.format(123456.789123));

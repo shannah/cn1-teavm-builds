@@ -26,10 +26,6 @@ import org.teavm.model.ValueType;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class JSOTest {
     @Test
     public void reportsAboutWrongParameterOfJSBody() {
@@ -99,7 +95,7 @@ public class JSOTest {
     private List<Problem> build(String methodName) {
         TeaVM vm = new TeaVMBuilder().build();
         vm.installPlugins();
-        vm.entryPoint("test", new MethodReference(JSOTest.class, methodName, void.class));
+        vm.entryPoint("org/teavm/metaprogramming/test", new MethodReference(JSOTest.class, methodName, void.class));
         vm.build(new StringBuilder(), null);
         return vm.getProblemProvider().getSevereProblems();
     }

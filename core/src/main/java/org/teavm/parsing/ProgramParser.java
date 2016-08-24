@@ -23,15 +23,12 @@ import org.teavm.model.instructions.*;
 import org.teavm.model.util.InstructionTransitionExtractor;
 import org.teavm.model.util.ProgramUtils;
 
-/**
- *
- * @author Alexey Andreev
- */
-public class ProgramParser implements VariableDebugInformation {
-    static final byte ROOT = 0;
-    static final byte SINGLE = 1;
-    static final byte DOUBLE_FIRST_HALF = 2;
-    static final byte DOUBLE_SECOND_HALF = 3;
+public class ProgramParser {
+    private ReferenceCache referenceCache;
+    private static final byte ROOT = 0;
+    private static final byte SINGLE = 1;
+    private static final byte DOUBLE_FIRST_HALF = 2;
+    private static final byte DOUBLE_SECOND_HALF = 3;
     private String fileName;
     private StackFrame[] stackBefore;
     private StackFrame[] stackAfter;
@@ -49,6 +46,10 @@ public class ProgramParser implements VariableDebugInformation {
     private Map<Integer, List<LocalVariableNode>> localVariableMap = new HashMap<>();
     private Map<Instruction, Map<Integer, String>> variableDebugNames = new HashMap<>();
 
+    public ProgramParser(ReferenceCache methodReferenceCache) {
+        this.referenceCache = methodReferenceCache;
+    }
+
     private static class Step {
         public final int source;
         public final int target;
@@ -60,17 +61,17 @@ public class ProgramParser implements VariableDebugInformation {
     }
 
     private static class StackFrame {
-        public final StackFrame next;
-        public final byte type;
-        public final int depth;
+        final StackFrame next;
+        final byte type;
+        final int depth;
 
-        public StackFrame(int depth) {
+        StackFrame(int depth) {
             this.next = null;
             this.type = ROOT;
             this.depth = depth;
         }
 
-        public StackFrame(StackFrame next, byte type) {
+        StackFrame(StackFrame next, byte type) {
             this.next = next;
             this.type = type;
             this.depth = next != null ? next.depth + 1 : 0;
@@ -148,21 +149,20 @@ public class ProgramParser implements VariableDebugInformation {
 
     private int popDouble() {
         if (stack == null || stack.type != DOUBLE_SECOND_HALF) {
-            throw new AssertionError("Illegal stack state at " + index);
+            throw new AssertionError("***Illegal stack state at " + index);
         }
         stack = stack.next;
         if (stack == null || stack.type != DOUBLE_FIRST_HALF) {
-            throw new AssertionError("Illegal stack state at " + index);
+            throw new AssertionError("***Illegal stack state at " + index);
         }
         int depth = stack.depth;
         stack = stack.next;
         return depth;
     }
 
-    @Override
     public Map<Integer, String> getDebugNames(Instruction insn) {
         Map<Integer, String> map = variableDebugNames.get(insn);
-        return map != null ? Collections.unmodifiableMap(map) : Collections.<Integer, String>emptyMap();
+        return map != null ? Collections.unmodifiableMap(map) : Collections.emptyMap();
     }
 
     private void prepare(MethodNode method) {
@@ -193,8 +193,8 @@ public class ProgramParser implements VariableDebugInformation {
             vars.add(localVar);
         }
         targetInstructions = new ArrayList<>(instructions.size());
-        targetInstructions.addAll(Collections.<List<Instruction>>nCopies(instructions.size(), null));
-        basicBlocks.addAll(Collections.<BasicBlock>nCopies(instructions.size(), null));
+        targetInstructions.addAll(Collections.nCopies(instructions.size(), null));
+        basicBlocks.addAll(Collections.nCopies(instructions.size(), null));
         stackBefore = new StackFrame[instructions.size()];
         stackAfter = new StackFrame[instructions.size()];
     }
@@ -287,7 +287,7 @@ public class ProgramParser implements VariableDebugInformation {
             List<LocalVariableNode> localVarNodes = localVariableMap.get(i);
             if (localVarNodes != null) {
                 if (builtInstructions == null || builtInstructions.isEmpty()) {
-                    builtInstructions = Arrays.<Instruction>asList(new EmptyInstruction());
+                    builtInstructions = Arrays.asList(new EmptyInstruction());
                 }
                 Map<Integer, String> debugNames = new HashMap<>();
                 variableDebugNames.put(builtInstructions.get(0), debugNames);
@@ -394,9 +394,9 @@ public class ProgramParser implements VariableDebugInformation {
 
         private ValueType parseType(String type) {
             if (type.startsWith("[")) {
-                return ValueType.parse(type);
+                return referenceCache.parseValueTypeCached(type);
             } else {
-                return ValueType.object(type.replace('/', '.'));
+                return referenceCache.getCached(ValueType.object(type.replace('/', '.')));
             }
         }
 
@@ -512,9 +512,10 @@ public class ProgramParser implements VariableDebugInformation {
                 insn.setReceiver(getVariable(returnType.getSize() == 2 ? pushDouble() : pushSingle()));
             }
 
-            insn.setMethod(new MethodDescriptor(name, MethodDescriptor.parseSignature(desc)));
-            for (int i = 0; i < bsmArgs.length; ++i) {
-                insn.getBootstrapArguments().add(convertConstant(bsmArgs[i]));
+            insn.setMethod(referenceCache.getCached(
+                    new MethodDescriptor(name, MethodDescriptor.parseSignature(desc))));
+            for (Object bsmArg : bsmArgs) {
+                insn.getBootstrapArguments().add(convertConstant(bsmArg));
             }
 
             addInstruction(insn);
@@ -536,7 +537,7 @@ public class ProgramParser implements VariableDebugInformation {
                 if (type.getSort() == Type.METHOD) {
                     return new RuntimeConstant(MethodDescriptor.parseSignature(type.getDescriptor()));
                 } else {
-                    return new RuntimeConstant(ValueType.parse(type.getDescriptor()));
+                    return new RuntimeConstant(referenceCache.parseValueTypeCached(type.getDescriptor()));
                 }
             } else if (value instanceof Handle) {
                 return new RuntimeConstant(parseHandle((Handle) value));
@@ -571,7 +572,8 @@ public class ProgramParser implements VariableDebugInformation {
                     for (int i = types.length - 1; i >= 0; --i) {
                         args[--j] = types[i].getSize() == 2 ? getVariable(popDouble()) : getVariable(popSingle());
                     }
-                    MethodDescriptor method = new MethodDescriptor(name, MethodDescriptor.parseSignature(desc));
+                    MethodDescriptor method = referenceCache.getCached(
+                            new MethodDescriptor(name, MethodDescriptor.parseSignature(desc)));
                     int instance = -1;
                     if (opcode != Opcodes.INVOKESTATIC) {
                         instance = popSingle();
@@ -584,7 +586,7 @@ public class ProgramParser implements VariableDebugInformation {
                     if (instance == -1) {
                         InvokeInstruction insn = new InvokeInstruction();
                         insn.setType(InvocationType.SPECIAL);
-                        insn.setMethod(new MethodReference(ownerCls, method));
+                        insn.setMethod(referenceCache.getCached(new MethodReference(ownerCls, method)));
                         if (result >= 0) {
                             insn.setReceiver(getVariable(result));
                         }
@@ -597,7 +599,7 @@ public class ProgramParser implements VariableDebugInformation {
                         } else {
                             insn.setType(InvocationType.VIRTUAL);
                         }
-                        insn.setMethod(new MethodReference(ownerCls, method));
+                        insn.setMethod(referenceCache.getCached(new MethodReference(ownerCls, method)));
                         if (result >= 0) {
                             insn.setReceiver(getVariable(result));
                         }
@@ -661,7 +663,7 @@ public class ProgramParser implements VariableDebugInformation {
                 addInstruction(insn);
             } else if (cst instanceof Type) {
                 ClassConstantInstruction insn = new ClassConstantInstruction();
-                insn.setConstant(ValueType.parse(((Type) cst).getDescriptor()));
+                insn.setConstant(referenceCache.getCached(ValueType.parse(((Type) cst).getDescriptor())));
                 insn.setReceiver(getVariable(pushSingle()));
                 addInstruction(insn);
             } else {
@@ -1047,6 +1049,7 @@ public class ProgramParser implements VariableDebugInformation {
                 case Opcodes.POP2:
                     if (stack.type == SINGLE) {
                         popSingle();
+                        popSingle();
                     } else {
                         popDouble();
                     }
@@ -1199,8 +1202,9 @@ public class ProgramParser implements VariableDebugInformation {
                 case Opcodes.SWAP: {
                     int b = popSingle();
                     int a = popSingle();
-                    int tmp = pushSingle();
                     pushSingle();
+                    pushSingle();
+                    int tmp = b + 1;
                     emitAssignInsn(a, tmp);
                     emitAssignInsn(b, a);
                     emitAssignInsn(tmp, b);
@@ -1655,11 +1659,11 @@ public class ProgramParser implements VariableDebugInformation {
             switch (opcode) {
                 case Opcodes.GETFIELD: {
                     int instance = popSingle();
-                    ValueType type = ValueType.parse(desc);
+                    ValueType type = referenceCache.parseValueTypeCached(desc);
                     int value = desc.equals("D") || desc.equals("J") ? pushDouble() : pushSingle();
                     GetFieldInstruction insn = new GetFieldInstruction();
                     insn.setInstance(getVariable(instance));
-                    insn.setField(new FieldReference(ownerCls, name));
+                    insn.setField(referenceCache.getCached(new FieldReference(ownerCls, name)));
                     insn.setFieldType(type);
                     insn.setReceiver(getVariable(value));
                     addInstruction(insn);
@@ -1670,17 +1674,17 @@ public class ProgramParser implements VariableDebugInformation {
                     int instance = popSingle();
                     PutFieldInstruction insn = new PutFieldInstruction();
                     insn.setInstance(getVariable(instance));
-                    insn.setField(new FieldReference(ownerCls, name));
+                    insn.setField(referenceCache.getCached(new FieldReference(ownerCls, name)));
                     insn.setValue(getVariable(value));
-                    insn.setFieldType(ValueType.parse(desc));
+                    insn.setFieldType(referenceCache.parseValueTypeCached(desc));
                     addInstruction(insn);
                     break;
                 }
                 case Opcodes.GETSTATIC: {
-                    ValueType type = ValueType.parse(desc);
+                    ValueType type = referenceCache.parseValueTypeCached(desc);
                     int value = desc.equals("D") || desc.equals("J") ? pushDouble() : pushSingle();
                     GetFieldInstruction insn = new GetFieldInstruction();
-                    insn.setField(new FieldReference(ownerCls, name));
+                    insn.setField(referenceCache.getCached(new FieldReference(ownerCls, name)));
                     insn.setFieldType(type);
                     insn.setReceiver(getVariable(value));
                     addInstruction(insn);
@@ -1694,7 +1698,7 @@ public class ProgramParser implements VariableDebugInformation {
                     }
                     int value = desc.equals("D") || desc.equals("J") ? popDouble() : popSingle();
                     PutFieldInstruction insn = new PutFieldInstruction();
-                    insn.setField(new FieldReference(ownerCls, name));
+                    insn.setField(referenceCache.getCached(new FieldReference(ownerCls, name)));
                     insn.setValue(getVariable(value));
                     addInstruction(insn);
                     break;
@@ -1725,7 +1729,7 @@ public class ProgramParser implements VariableDebugInformation {
         }
     };
 
-    static MethodHandle parseHandle(Handle handle) {
+    private static MethodHandle parseHandle(Handle handle) {
         switch (handle.getTag()) {
             case Opcodes.H_GETFIELD:
                 return MethodHandle.fieldGetter(handle.getOwner().replace('/', '.'), handle.getName(),
