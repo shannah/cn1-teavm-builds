@@ -15,23 +15,14 @@
  */
 package org.teavm.model;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
-
-/**
- *
- * @author Alexey Andreev
- */
 public class Variable implements VariableReader {
     private Program program;
     private int index;
     private int register;
-    private Set<String> debugNames;
+    private String debugName;
 
     Variable(Program program) {
         this.program = program;
-        this.debugNames = new HashSet<>();
     }
 
     @Override
@@ -61,12 +52,12 @@ public class Variable implements VariableReader {
         this.register = register;
     }
 
-    public Set<String> getDebugNames() {
-        return debugNames;
+    @Override
+    public String getDebugName() {
+        return debugName;
     }
 
-    @Override
-    public Set<String> readDebugNames() {
-        return Collections.unmodifiableSet(debugNames);
+    public void setDebugName(String debugName) {
+        this.debugName = debugName;
     }
 }

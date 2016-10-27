@@ -15,10 +15,8 @@
  */
 package org.teavm.model;
 
-/**
- *
- * @author Alexey Andreev
- */
+import java.util.List;
+
 public interface TryCatchBlockReader {
     BasicBlockReader getProtectedBlock();
 
@@ -26,5 +24,5 @@ public interface TryCatchBlockReader {
 
     String getExceptionType();
 
-    VariableReader getExceptionVariable();
+    List<TryCatchJointReader> readJoints();
 }

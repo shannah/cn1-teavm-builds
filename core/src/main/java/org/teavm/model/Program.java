@@ -18,10 +18,6 @@ package org.teavm.model;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class Program implements ProgramReader {
     private List<BasicBlock> basicBlocks = new ArrayList<>();
     private List<Variable> variables = new ArrayList<>();
@@ -115,6 +111,9 @@ public class Program implements ProgramReader {
 
     @Override
     public Variable variableAt(int index) {
+        if (index < 0) {
+            throw new IllegalArgumentException("Index " + index + " is negative");
+        }
         return variables.get(index);
     }
 

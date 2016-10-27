@@ -16,14 +16,10 @@
 package org.teavm.diagnostics;
 
 import org.teavm.model.FieldReference;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodReference;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 
-/**
- *
- * @author Alexey Andreev
- */
 public interface ProblemTextConsumer {
     void append(String text);
 
@@ -35,5 +31,5 @@ public interface ProblemTextConsumer {
 
     void appendField(FieldReference field);
 
-    void appendLocation(InstructionLocation location);
+    void appendLocation(TextLocation location);
 }

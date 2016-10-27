@@ -15,14 +15,10 @@
  */
 package org.teavm.vm;
 
-/**
- *
- * @author Alexey Andreev
- */
 public enum TeaVMPhase {
     DEPENDENCY_CHECKING,
     LINKING,
-    DEVIRTUALIZATION,
+    OPTIMIZATION,
     DECOMPILATION,
     RENDERING
 }

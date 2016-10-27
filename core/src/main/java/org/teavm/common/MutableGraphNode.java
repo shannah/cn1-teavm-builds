@@ -15,21 +15,19 @@
  */
 package org.teavm.common;
 
+import com.carrotsearch.hppc.ObjectIntMap;
+import com.carrotsearch.hppc.ObjectIntOpenHashMap;
 import java.util.*;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class MutableGraphNode {
-    int tag;
-    Map<MutableGraphNode, MutableGraphEdge> edges = new HashMap<>();
+    private int tag;
+    final Map<MutableGraphNode, MutableGraphEdge> edges = new LinkedHashMap<>();
 
     public MutableGraphNode(int tag) {
         this.tag = tag;
     }
 
-    public MutableGraphEdge connect(MutableGraphNode other) {
+    private MutableGraphEdge connect(MutableGraphNode other) {
         MutableGraphEdge edge = edges.get(other);
         if (edge == null) {
             edge = new MutableGraphEdge();
@@ -76,5 +74,22 @@ public class MutableGraphNode {
             sb.append(',').append(edges.next().getSecond().getTag());
         }
         return sb.toString();
+    }
+
+    public static Graph toGraph(List<MutableGraphNode> nodes) {
+        ObjectIntMap<MutableGraphNode> map = new ObjectIntOpenHashMap<>();
+        for (int i = 0; i < nodes.size(); ++i) {
+            map.put(nodes.get(i), i);
+        }
+
+        GraphBuilder builder = new GraphBuilder(nodes.size());
+        for (int i = 0; i < nodes.size(); ++i) {
+            for (MutableGraphEdge edge : nodes.get(i).getEdges()) {
+                int successor = map.get(edge.getSecond());
+                builder.addEdge(i, successor);
+            }
+        }
+
+        return builder.build();
     }
 }

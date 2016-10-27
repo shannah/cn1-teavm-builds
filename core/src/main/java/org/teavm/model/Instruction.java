@@ -17,13 +17,9 @@ package org.teavm.model;
 
 import org.teavm.model.instructions.InstructionVisitor;
 
-/**
- *
- * @author Alexey Andreev
- */
 public abstract class Instruction {
     private BasicBlock basicBlock;
-    private InstructionLocation location;
+    private TextLocation location;
 
     void setBasicBlock(BasicBlock basicBlock) {
         this.basicBlock = basicBlock;
@@ -37,11 +33,11 @@ public abstract class Instruction {
         return basicBlock != null ? basicBlock.getProgram() : null;
     }
 
-    public InstructionLocation getLocation() {
+    public TextLocation getLocation() {
         return location;
     }
 
-    public void setLocation(InstructionLocation location) {
+    public void setLocation(TextLocation location) {
         this.location = location;
     }
 

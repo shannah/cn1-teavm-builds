@@ -15,19 +15,34 @@
  */
 package org.teavm.model.util;
 
-import java.util.*;
-import org.teavm.common.*;
-import org.teavm.model.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.teavm.common.DisjointSet;
+import org.teavm.common.MutableGraphEdge;
+import org.teavm.common.MutableGraphNode;
+import org.teavm.model.BasicBlock;
+import org.teavm.model.Incoming;
+import org.teavm.model.Instruction;
+import org.teavm.model.MethodReader;
+import org.teavm.model.MethodReference;
+import org.teavm.model.Phi;
+import org.teavm.model.Program;
+import org.teavm.model.ProgramReader;
+import org.teavm.model.TryCatchBlock;
+import org.teavm.model.TryCatchJoint;
+import org.teavm.model.Variable;
 import org.teavm.model.instructions.AssignInstruction;
 import org.teavm.model.instructions.EmptyInstruction;
 import org.teavm.model.instructions.JumpInstruction;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class RegisterAllocator {
     public void allocateRegisters(MethodReader method, Program program) {
+        insertJointArgumentsCopies(program);
         insertPhiArgumentsCopies(program);
         InterferenceGraphBuilder interferenceBuilder = new InterferenceGraphBuilder();
         LivenessAnalyzer liveness = new LivenessAnalyzer();
@@ -52,17 +67,34 @@ public class RegisterAllocator {
             maxClass = Math.max(maxClass, cls + 1);
         }
         int[] categories = getVariableCategories(program, method.getReference());
-        int[] classCategories = new int[maxClass];
-        for (int i = 0; i < categories.length; ++i) {
-            classCategories[classArray[i]] = categories[i];
-        }
-        colorer.colorize(interferenceGraph, colors, classCategories);
+        String[] names = getVariableNames(program);
+        colorer.colorize(MutableGraphNode.toGraph(interferenceGraph), colors, categories, names);
+
+        int maxColor = 0;
         for (int i = 0; i < colors.length; ++i) {
             program.variableAt(i).setRegister(colors[i]);
+            maxColor = Math.max(maxColor, colors[i] + 1);
+        }
+
+        String[] namesByRegister = new String[maxColor];
+        for (int i = 0; i < program.variableCount(); ++i) {
+            Variable var = program.variableAt(i);
+            if (var.getDebugName() != null && var.getRegister() >= 0) {
+                namesByRegister[var.getRegister()] = names[i];
+            }
+        }
+        for (int i = 0; i < program.variableCount(); ++i) {
+            Variable var = program.variableAt(i);
+            if (var.getRegister() >= 0) {
+                var.setDebugName(namesByRegister[var.getRegister()]);
+            }
         }
 
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             program.basicBlockAt(i).getPhis().clear();
+            for (TryCatchBlock tryCatch : program.basicBlockAt(i).getTryCatchBlocks()) {
+                tryCatch.getJoints().clear();
+            }
         }
     }
 
@@ -75,6 +107,14 @@ public class RegisterAllocator {
             categories[i] = type != null ? type.ordinal() : 255;
         }
         return categories;
+    }
+
+    private String[] getVariableNames(ProgramReader program) {
+        String[] names = new String[program.variableCount()];
+        for (int i = 0; i < names.length; ++i) {
+            names[i] = program.variableAt(i).getDebugName();
+        }
+        return names;
     }
 
     private static void joinClassNodes(List<MutableGraphNode> graph, DisjointSet classes) {
@@ -98,21 +138,52 @@ public class RegisterAllocator {
         }
     }
 
+    private void insertJointArgumentsCopies(Program program) {
+        for (int i = 0; i < program.basicBlockCount(); ++i) {
+            BasicBlock block = program.basicBlockAt(i);
+            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
+                tryCatch.getJoints().forEach(this::insertCopy);
+            }
+        }
+    }
+
+    private void insertCopy(TryCatchJoint joint) {
+        Set<Variable> variableSet = new HashSet<>(joint.getSourceVariables());
+
+        BasicBlock block = joint.getBlock().getProtectedBlock();
+        DefinitionExtractor defExtractor = new DefinitionExtractor();
+        for (int i = block.getInstructions().size() - 1; i >= 0; --i) {
+            Instruction insn = block.getInstructions().get(i);
+            insn.acceptVisitor(defExtractor);
+            for (Variable definedVar : defExtractor.getDefinedVariables()) {
+                if (variableSet.remove(definedVar)) {
+                    AssignInstruction copyInsn = new AssignInstruction();
+                    copyInsn.setReceiver(joint.getReceiver());
+                    copyInsn.setAssignee(definedVar);
+                    block.getInstructions().add(i, copyInsn);
+                }
+            }
+        }
+
+        for (Variable enteringVar : variableSet) {
+            AssignInstruction copyInsn = new AssignInstruction();
+            copyInsn.setReceiver(joint.getReceiver());
+            copyInsn.setAssignee(enteringVar);
+            block.getInstructions().add(0, copyInsn);
+        }
+    }
+
     private void insertPhiArgumentsCopies(Program program) {
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             Map<BasicBlock, BasicBlock> blockMap = new HashMap<>();
             for (Phi phi : program.basicBlockAt(i).getPhis()) {
                 for (Incoming incoming : phi.getIncomings()) {
-                    if (!isExceptionHandler(incoming)) {
-                        insertCopy(incoming, blockMap);
-                    }
+                    insertCopy(incoming, blockMap);
                 }
             }
             for (Phi phi : program.basicBlockAt(i).getPhis()) {
                 for (Incoming incoming : phi.getIncomings()) {
-                    if (!isExceptionHandler(incoming)) {
-                        insertCopy(incoming, blockMap);
-                    }
+                    insertCopy(incoming, blockMap);
                 }
             }
         }
@@ -136,30 +207,14 @@ public class RegisterAllocator {
             JumpInstruction jumpInstruction = new JumpInstruction();
             jumpInstruction.setTarget(phi.getBasicBlock());
             copyBlock.getInstructions().add(jumpInstruction);
-            incoming.getSource().getLastInstruction().acceptVisitor(new BasicBlockMapper() {
-                @Override protected BasicBlock map(BasicBlock block) {
-                    if (block == phi.getBasicBlock()) {
-                        return copyBlock;
-                    } else {
-                        return block;
-                    }
-                }
-            });
+            incoming.getSource().getLastInstruction().acceptVisitor(new BasicBlockMapper(block ->
+                    block == phi.getBasicBlock().getIndex() ? copyBlock.getIndex() : block));
             blockMap.put(source, copyBlock);
             incoming.setSource(copyBlock);
             source = copyBlock;
         }
         source.getInstructions().add(source.getInstructions().size() - 1, copyInstruction);
         incoming.setValue(copyInstruction.getReceiver());
-    }
-
-    private boolean isExceptionHandler(Incoming incoming) {
-        for (TryCatchBlock tryCatch : incoming.getSource().getTryCatchBlocks()) {
-            if (tryCatch.getExceptionVariable() == incoming.getValue()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void removeRedundantCopies(Program program, List<MutableGraphNode> interferenceGraph,
@@ -218,35 +273,21 @@ public class RegisterAllocator {
     }
 
     private void renameVariables(final Program program, final int[] varMap) {
-        InstructionVariableMapper mapper = new InstructionVariableMapper() {
-            @Override protected Variable map(Variable var) {
-                return program.variableAt(varMap[var.getIndex()]);
-            }
-        };
+        InstructionVariableMapper mapper = new InstructionVariableMapper(var ->
+                program.variableAt(varMap[var.getIndex()]));
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock block = program.basicBlockAt(i);
-            for (Instruction insn : block.getInstructions()) {
-                insn.acceptVisitor(mapper);
-            }
-            for (Phi phi : block.getPhis()) {
-                phi.setReceiver(program.variableAt(varMap[phi.getReceiver().getIndex()]));
-                for (Incoming incoming : phi.getIncomings()) {
-                    incoming.setValue(program.variableAt(varMap[incoming.getValue().getIndex()]));
-                }
-            }
-            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
-                tryCatch.setExceptionVariable(program.variableAt(
-                        varMap[tryCatch.getExceptionVariable().getIndex()]));
-            }
+            mapper.apply(block);
         }
-        String[][] originalNames = new String[program.variableCount()][];
+        String[] originalNames = getVariableNames(program);
         for (int i = 0; i < program.variableCount(); ++i) {
-            Variable var = program.variableAt(i);
-            originalNames[i] = var.getDebugNames().toArray(new String[0]);
-            var.getDebugNames().clear();
+            program.variableAt(i).setDebugName(null);
         }
         for (int i = 0; i < program.variableCount(); ++i) {
-            program.variableAt(varMap[i]).getDebugNames().addAll(Arrays.asList(originalNames[i]));
+            Variable var = program.variableAt(varMap[i]);
+            if (originalNames[i] != null) {
+                var.setDebugName(originalNames[i]);
+            }
         }
     }
 
@@ -277,6 +318,13 @@ public class RegisterAllocator {
             for (Phi phi : block.getPhis()) {
                 for (Incoming incoming : phi.getIncomings()) {
                     classes.union(phi.getReceiver().getIndex(), incoming.getValue().getIndex());
+                }
+            }
+            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
+                for (TryCatchJoint joint : tryCatch.getJoints()) {
+                    for (Variable sourceVar : joint.getSourceVariables()) {
+                        classes.union(sourceVar.getIndex(), joint.getReceiver().getIndex());
+                    }
                 }
             }
         }

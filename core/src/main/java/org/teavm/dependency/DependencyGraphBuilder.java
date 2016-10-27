@@ -33,7 +33,6 @@ import org.teavm.model.FieldReference;
 import org.teavm.model.Incoming;
 import org.teavm.model.IncomingReader;
 import org.teavm.model.Instruction;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.InvokeDynamicInstruction;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHandle;
@@ -43,36 +42,28 @@ import org.teavm.model.Phi;
 import org.teavm.model.PhiReader;
 import org.teavm.model.Program;
 import org.teavm.model.RuntimeConstant;
+import org.teavm.model.TextLocation;
 import org.teavm.model.TryCatchBlockReader;
+import org.teavm.model.TryCatchJointReader;
 import org.teavm.model.ValueType;
 import org.teavm.model.VariableReader;
 import org.teavm.model.emit.ProgramEmitter;
 import org.teavm.model.emit.ValueEmitter;
+import org.teavm.model.instructions.AbstractInstructionReader;
 import org.teavm.model.instructions.ArrayElementType;
 import org.teavm.model.instructions.AssignInstruction;
-import org.teavm.model.instructions.BinaryBranchingCondition;
-import org.teavm.model.instructions.BinaryOperation;
-import org.teavm.model.instructions.BranchingCondition;
-import org.teavm.model.instructions.CastIntegerDirection;
 import org.teavm.model.instructions.InstructionReader;
-import org.teavm.model.instructions.IntegerSubtype;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.NullConstantInstruction;
-import org.teavm.model.instructions.NumericOperandType;
-import org.teavm.model.instructions.SwitchTableEntryReader;
 import org.teavm.model.util.ListingBuilder;
 
-/**
- *
- * @author Alexey Andreev
- */
 class DependencyGraphBuilder {
     private DependencyChecker dependencyChecker;
     private DependencyNode[] nodes;
     private DependencyNode resultNode;
     private Program program;
     private DefaultCallGraphNode caller;
-    private InstructionLocation currentLocation;
+    private TextLocation currentLocation;
     private ExceptionConsumer currentExceptionConsumer;
 
     public DependencyGraphBuilder(DependencyChecker dependencyChecker) {
@@ -136,18 +127,33 @@ class DependencyGraphBuilder {
             BasicBlockReader block = program.basicBlockAt(i);
             currentExceptionConsumer = createExceptionConsumer(dep, block);
             block.readAllInstructions(reader);
+
             for (PhiReader phi : block.readPhis()) {
+                DependencyNode receiverNode = nodes[phi.getReceiver().getIndex()];
                 for (IncomingReader incoming : phi.readIncomings()) {
                     DependencyNode incomingNode = nodes[incoming.getValue().getIndex()];
-                    DependencyNode receiverNode = nodes[phi.getReceiver().getIndex()];
                     if (incomingNode != null && receiverNode != null) {
                         incomingNode.connect(receiverNode);
                     }
                 }
             }
+
             for (TryCatchBlockReader tryCatch : block.readTryCatchBlocks()) {
                 if (tryCatch.getExceptionType() != null) {
                     dependencyChecker.linkClass(tryCatch.getExceptionType(), new CallLocation(caller.getMethod()));
+                }
+
+                for (TryCatchJointReader joint : tryCatch.readJoints()) {
+                    DependencyNode receiverNode = nodes[joint.getReceiver().getIndex()];
+                    if (receiverNode == null) {
+                        continue;
+                    }
+                    for (VariableReader source : joint.readSourceVariables()) {
+                        DependencyNode sourceNode = nodes[source.getIndex()];
+                        if (sourceNode != null) {
+                            sourceNode.connect(receiverNode);
+                        }
+                    }
                 }
             }
         }
@@ -273,7 +279,9 @@ class DependencyGraphBuilder {
             if (tryCatch.getExceptionType() != null) {
                 exceptions[i] = dependencyChecker.getClassSource().get(tryCatch.getExceptionType());
             }
-            vars[i] = methodDep.getVariable(tryCatch.getExceptionVariable().getIndex());
+            if (tryCatch.getHandler().getExceptionVariable() != null) {
+                vars[i] = methodDep.getVariable(tryCatch.getHandler().getExceptionVariable().getIndex());
+            }
         }
         return new ExceptionConsumer(dependencyChecker, exceptions, vars, methodDep);
     }
@@ -316,13 +324,13 @@ class DependencyGraphBuilder {
         private final DependencyNode[] parameters;
         private final DependencyNode result;
         private final DefaultCallGraphNode caller;
-        private final InstructionLocation location;
+        private final TextLocation location;
         private final Set<MethodReference> knownMethods = new HashSet<>();
         private ExceptionConsumer exceptionConsumer;
 
         public VirtualCallConsumer(DependencyNode node, ClassReader filterClass,
                 MethodDescriptor methodDesc, DependencyChecker checker, DependencyNode[] parameters,
-                DependencyNode result, DefaultCallGraphNode caller, InstructionLocation location,
+                DependencyNode result, DefaultCallGraphNode caller, TextLocation location,
                 ExceptionConsumer exceptionConsumer) {
             this.node = node;
             this.filterClass = filterClass;
@@ -351,8 +359,7 @@ class DependencyGraphBuilder {
                 return;
             }
             MethodReference methodRef = new MethodReference(className, methodDesc);
-            final MethodDependency methodDep = checker.linkMethod(methodRef,
-                    new CallLocation(caller.getMethod(), location));
+            MethodDependency methodDep = checker.linkMethod(methodRef, new CallLocation(caller.getMethod(), location));
             if (!methodDep.isMissing() && knownMethods.add(methodRef)) {
                 methodDep.use();
                 DependencyNode[] targetParams = methodDep.getVariables();
@@ -373,14 +380,10 @@ class DependencyGraphBuilder {
         }
     }
 
-    private InstructionReader reader = new InstructionReader() {
+    private InstructionReader reader = new AbstractInstructionReader() {
         @Override
-        public void location(InstructionLocation location) {
+        public void location(TextLocation location) {
             currentLocation = location;
-        }
-
-        @Override
-        public void nop() {
         }
 
         @Override
@@ -412,26 +415,6 @@ class DependencyGraphBuilder {
         }
 
         @Override
-        public void nullConstant(VariableReader receiver) {
-        }
-
-        @Override
-        public void integerConstant(VariableReader receiver, int cst) {
-        }
-
-        @Override
-        public void longConstant(VariableReader receiver, long cst) {
-        }
-
-        @Override
-        public void floatConstant(VariableReader receiver, float cst) {
-        }
-
-        @Override
-        public void doubleConstant(VariableReader receiver, double cst) {
-        }
-
-        @Override
         public void stringConstant(VariableReader receiver, String cst) {
             DependencyNode node = nodes[receiver.getIndex()];
             if (node != null) {
@@ -440,15 +423,6 @@ class DependencyGraphBuilder {
             MethodDependency method = dependencyChecker.linkMethod(new MethodReference(String.class,
                     "<init>", char[].class, void.class), new CallLocation(caller.getMethod(), currentLocation));
             method.use();
-        }
-
-        @Override
-        public void binary(BinaryOperation op, VariableReader receiver, VariableReader first, VariableReader second,
-                NumericOperandType type) {
-        }
-
-        @Override
-        public void negate(VariableReader receiver, VariableReader operand, NumericOperandType type) {
         }
 
         @Override
@@ -484,36 +458,6 @@ class DependencyGraphBuilder {
                 valueNode.connect(receiverNode);
             }
         }
-
-        @Override
-        public void cast(VariableReader receiver, VariableReader value, NumericOperandType sourceType,
-                NumericOperandType targetType) {
-        }
-
-        @Override
-        public void cast(VariableReader receiver, VariableReader value, IntegerSubtype type,
-                CastIntegerDirection targetType) {
-        }
-
-        @Override
-        public void jumpIf(BranchingCondition cond, VariableReader operand, BasicBlockReader consequent,
-                BasicBlockReader alternative) {
-        }
-
-        @Override
-        public void jumpIf(BinaryBranchingCondition cond, VariableReader first, VariableReader second,
-                BasicBlockReader consequent, BasicBlockReader alternative) {
-        }
-
-        @Override
-        public void jump(BasicBlockReader target) {
-        }
-
-        @Override
-        public void choose(VariableReader condition, List<? extends SwitchTableEntryReader> table,
-                BasicBlockReader defaultTarget) {
-        }
-
         @Override
         public void exit(VariableReader valueToReturn) {
             if (valueToReturn != null) {
@@ -615,10 +559,6 @@ class DependencyGraphBuilder {
         }
 
         @Override
-        public void arrayLength(VariableReader receiver, VariableReader array) {
-        }
-
-        @Override
         public void cloneArray(VariableReader receiver, VariableReader array) {
             DependencyNode arrayNode = nodes[array.getIndex()];
             final DependencyNode receiverNode = nodes[receiver.getIndex()];
@@ -626,6 +566,11 @@ class DependencyGraphBuilder {
                 arrayNode.addConsumer(receiverNode::propagate);
                 arrayNode.getArrayItem().connect(receiverNode.getArrayItem());
             }
+            MethodDependency cloneDep = dependencyChecker.linkMethod(
+                    new MethodReference(Object.class, "clone", Object.class),
+                    new CallLocation(caller.getMethod(), currentLocation));
+            arrayNode.connect(cloneDep.getVariable(0));
+            cloneDep.use();
         }
 
         @Override
@@ -638,7 +583,8 @@ class DependencyGraphBuilder {
         }
 
         @Override
-        public void getElement(VariableReader receiver, VariableReader array, VariableReader index) {
+        public void getElement(VariableReader receiver, VariableReader array, VariableReader index,
+                ArrayElementType type) {
             DependencyNode arrayNode = nodes[array.getIndex()];
             DependencyNode receiverNode = nodes[receiver.getIndex()];
             if (arrayNode != null && receiverNode != null && receiverNode != arrayNode.getArrayItem()) {
@@ -647,7 +593,8 @@ class DependencyGraphBuilder {
         }
 
         @Override
-        public void putElement(VariableReader array, VariableReader index, VariableReader value) {
+        public void putElement(VariableReader array, VariableReader index, VariableReader value,
+                ArrayElementType type) {
             DependencyNode valueNode = nodes[value.getIndex()];
             DependencyNode arrayNode = nodes[array.getIndex()];
             if (valueNode != null && arrayNode != null && valueNode != arrayNode.getArrayItem()) {

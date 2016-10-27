@@ -18,16 +18,67 @@ package org.teavm.cache;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.*;
-import org.teavm.javascript.ast.*;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.teavm.ast.ArrayType;
+import org.teavm.ast.AssignmentStatement;
+import org.teavm.ast.AsyncMethodNode;
+import org.teavm.ast.AsyncMethodPart;
+import org.teavm.ast.BinaryExpr;
+import org.teavm.ast.BinaryOperation;
+import org.teavm.ast.BlockStatement;
+import org.teavm.ast.BreakStatement;
+import org.teavm.ast.CastExpr;
+import org.teavm.ast.ConditionalExpr;
+import org.teavm.ast.ConditionalStatement;
+import org.teavm.ast.ConstantExpr;
+import org.teavm.ast.ContinueStatement;
+import org.teavm.ast.Expr;
+import org.teavm.ast.ExprVisitor;
+import org.teavm.ast.GotoPartStatement;
+import org.teavm.ast.IdentifiedStatement;
+import org.teavm.ast.InitClassStatement;
+import org.teavm.ast.InstanceOfExpr;
+import org.teavm.ast.InvocationExpr;
+import org.teavm.ast.InvocationType;
+import org.teavm.ast.MonitorEnterStatement;
+import org.teavm.ast.MonitorExitStatement;
+import org.teavm.ast.NewArrayExpr;
+import org.teavm.ast.NewExpr;
+import org.teavm.ast.NewMultiArrayExpr;
+import org.teavm.ast.OperationType;
+import org.teavm.ast.PrimitiveCastExpr;
+import org.teavm.ast.QualificationExpr;
+import org.teavm.ast.RegularMethodNode;
+import org.teavm.ast.ReturnStatement;
+import org.teavm.ast.SequentialStatement;
+import org.teavm.ast.Statement;
+import org.teavm.ast.StatementVisitor;
+import org.teavm.ast.SubscriptExpr;
+import org.teavm.ast.SwitchClause;
+import org.teavm.ast.SwitchStatement;
+import org.teavm.ast.ThrowStatement;
+import org.teavm.ast.TryCatchStatement;
+import org.teavm.ast.UnaryExpr;
+import org.teavm.ast.UnaryOperation;
+import org.teavm.ast.UnwrapArrayExpr;
+import org.teavm.ast.VariableExpr;
+import org.teavm.ast.VariableNode;
+import org.teavm.ast.WhileStatement;
+import org.teavm.model.ElementModifier;
 import org.teavm.model.FieldReference;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReference;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.model.instructions.ArrayElementType;
+import org.teavm.model.util.VariableType;
 
 public class AstIO {
-    private static final NodeModifier[] nodeModifiers = NodeModifier.values();
+    private static final ElementModifier[] nodeModifiers = ElementModifier.values();
     private static final BinaryOperation[] binaryOperations = BinaryOperation.values();
     private static final UnaryOperation[] unaryOperations = UnaryOperation.values();
     private static final ArrayElementType[] arrayElementTypes = ArrayElementType.values();
@@ -43,11 +94,9 @@ public class AstIO {
     public void write(DataOutput output, RegularMethodNode method) throws IOException {
         output.writeInt(packModifiers(method.getModifiers()));
         output.writeShort(method.getVariables().size());
-        for (int var : method.getVariables()) {
-            output.writeShort(var);
+        for (VariableNode var : method.getVariables()) {
+            write(output, var);
         }
-        output.writeShort(method.getParameterDebugNames().size());
-        writeParameters(output, method);
         try {
             method.getBody().acceptVisitor(new NodeWriter(output));
         } catch (IOExceptionWrapper e) {
@@ -55,26 +104,43 @@ public class AstIO {
         }
     }
 
+    private void write(DataOutput output, VariableNode variable) throws IOException {
+        output.writeShort(variable.getIndex());
+        output.writeByte(variable.getType().ordinal());
+        output.writeUTF(variable.getName() != null ? variable.getName() : "");
+    }
+
     public RegularMethodNode read(DataInput input, MethodReference method) throws IOException {
         RegularMethodNode node = new RegularMethodNode(method);
         node.getModifiers().addAll(unpackModifiers(input.readInt()));
         int varCount = input.readShort();
         for (int i = 0; i < varCount; ++i) {
-            node.getVariables().add((int) input.readShort());
+            node.getVariables().add(readVariable(input));
         }
-        readParameters(input, node);
         node.setBody(readStatement(input));
         return node;
+    }
+
+    private VariableNode readVariable(DataInput input) throws IOException {
+        int index = input.readShort();
+        VariableType type = VariableType.values()[input.readByte()];
+        VariableNode variable = new VariableNode(index, type);
+        int nameCount = input.readByte();
+        for (int i = 0; i < nameCount; ++i) {
+            variable.setName(input.readUTF());
+            if (variable.getName().isEmpty()) {
+                variable.setName(null);
+            }
+        }
+        return variable;
     }
 
     public void writeAsync(DataOutput output, AsyncMethodNode method) throws IOException {
         output.writeInt(packModifiers(method.getModifiers()));
         output.writeShort(method.getVariables().size());
-        for (int var : method.getVariables()) {
-            output.writeShort(var);
+        for (VariableNode var : method.getVariables()) {
+            write(output, var);
         }
-        output.writeShort(method.getParameterDebugNames().size());
-        writeParameters(output, method);
         try {
              output.writeShort(method.getBody().size());
              for (int i = 0; i < method.getBody().size(); ++i) {
@@ -85,25 +151,13 @@ public class AstIO {
         }
     }
 
-    private void writeParameters(DataOutput output, MethodNode method) throws IOException {
-        for (Set<String> debugNames : method.getParameterDebugNames()) {
-            output.writeShort(debugNames != null ? debugNames.size() : 0);
-            if (debugNames != null) {
-                for (String debugName : debugNames) {
-                    output.writeUTF(debugName);
-                }
-            }
-        }
-    }
-
     public AsyncMethodNode readAsync(DataInput input, MethodReference method) throws IOException {
         AsyncMethodNode node = new AsyncMethodNode(method);
         node.getModifiers().addAll(unpackModifiers(input.readInt()));
         int varCount = input.readShort();
         for (int i = 0; i < varCount; ++i) {
-            node.getVariables().add((int) input.readShort());
+            node.getVariables().add(readVariable(input));
         }
-        readParameters(input, node);
         int partCount = input.readShort();
         for (int i = 0; i < partCount; ++i) {
             AsyncMethodPart part = new AsyncMethodPart();
@@ -113,28 +167,16 @@ public class AstIO {
         return node;
     }
 
-    private void readParameters(DataInput input, MethodNode node) throws IOException {
-        int paramDebugNameCount = input.readShort();
-        for (int i = 0; i < paramDebugNameCount; ++i) {
-            int debugNameCount = input.readShort();
-            Set<String> debugNames = new HashSet<>();
-            for (int j = 0; j < debugNameCount; ++j) {
-                debugNames.add(input.readUTF());
-            }
-            node.getParameterDebugNames().add(debugNames);
-        }
-    }
-
-    private int packModifiers(Set<NodeModifier> modifiers) {
+    private int packModifiers(Set<ElementModifier> modifiers) {
         int packed = 0;
-        for (NodeModifier modifier : modifiers) {
+        for (ElementModifier modifier : modifiers) {
             packed |= 1 << modifier.ordinal();
         }
         return packed;
     }
 
-    private Set<NodeModifier> unpackModifiers(int packed) {
-        EnumSet<NodeModifier> modifiers = EnumSet.noneOf(NodeModifier.class);
+    private Set<ElementModifier> unpackModifiers(int packed) {
+        EnumSet<ElementModifier> modifiers = EnumSet.noneOf(ElementModifier.class);
         while (packed != 0) {
             int shift = Integer.numberOfTrailingZeros(packed);
             modifiers.add(nodeModifiers[shift]);
@@ -156,7 +198,7 @@ public class AstIO {
             expr.acceptVisitor(this);
         }
 
-        private void writeLocation(NodeLocation location) throws IOException {
+        private void writeLocation(TextLocation location) throws IOException {
             if (location == null || location.getFileName() == null) {
                 output.writeShort(-1);
             } else {
@@ -186,10 +228,6 @@ public class AstIO {
             try {
                 output.writeByte(statement.getLeftValue() != null ? 0 : 1);
                 writeLocation(statement.getLocation());
-                output.writeShort(statement.getDebugNames().size());
-                for (String name : statement.getDebugNames()) {
-                    output.writeUTF(name);
-                }
                 if (statement.getLeftValue() != null) {
                     writeExpr(statement.getLeftValue());
                 }
@@ -381,6 +419,7 @@ public class AstIO {
             try {
                 output.writeByte(0);
                 output.writeByte(expr.getOperation().ordinal());
+                output.writeByte(expr.getType() != null ? expr.getType().ordinal() + 1 : 0);
                 writeExpr(expr.getFirstOperand());
                 writeExpr(expr.getSecondOperand());
             } catch (IOException e) {
@@ -393,6 +432,7 @@ public class AstIO {
             try {
                 output.writeByte(1);
                 output.writeByte(expr.getOperation().ordinal());
+                output.writeByte(expr.getType() != null ? expr.getType().ordinal() + 1 : 0);
                 writeExpr(expr.getOperand());
             } catch (IOException e) {
                 throw new IOExceptionWrapper(e);
@@ -457,6 +497,7 @@ public class AstIO {
                 output.writeByte(11);
                 writeExpr(expr.getArray());
                 writeExpr(expr.getIndex());
+                output.writeByte(expr.getType().ordinal());
             } catch (IOException e) {
                 throw new IOExceptionWrapper(e);
             }
@@ -560,14 +601,37 @@ public class AstIO {
                 throw new IOExceptionWrapper(e);
             }
         }
+
+        @Override
+        public void visit(CastExpr expr) {
+            try {
+                output.writeByte(23);
+                output.writeInt(symbolTable.lookup(expr.getTarget().toString()));
+                writeExpr(expr.getValue());
+            } catch (IOException e) {
+                throw new IOExceptionWrapper(e);
+            }
+        }
+
+        @Override
+        public void visit(PrimitiveCastExpr expr) {
+            try {
+                output.writeByte(24);
+                output.writeByte(expr.getSource().ordinal());
+                output.writeByte(expr.getTarget().ordinal());
+                writeExpr(expr.getValue());
+            } catch (IOException e) {
+                throw new IOExceptionWrapper(e);
+            }
+        }
     }
 
-    private NodeLocation readLocation(DataInput input) throws IOException {
+    private TextLocation readLocation(DataInput input) throws IOException {
         int fileIndex = input.readShort();
         if (fileIndex == -1) {
             return null;
         } else {
-            return new NodeLocation(fileTable.at(fileIndex), input.readShort());
+            return new TextLocation(fileTable.at(fileIndex), input.readShort());
         }
     }
 
@@ -577,10 +641,6 @@ public class AstIO {
             case 0: {
                 AssignmentStatement stmt = new AssignmentStatement();
                 stmt.setLocation(readLocation(input));
-                int debugNameCount = input.readShort();
-                for (int i = 0; i < debugNameCount; ++i) {
-                    stmt.getDebugNames().add(input.readUTF());
-                }
                 stmt.setLeftValue(readExpr(input));
                 stmt.setRightValue(readExpr(input));
                 stmt.setAsync(input.readBoolean());
@@ -589,10 +649,6 @@ public class AstIO {
             case 1: {
                 AssignmentStatement stmt = new AssignmentStatement();
                 stmt.setLocation(readLocation(input));
-                int debugNameCount = input.readShort();
-                for (int i = 0; i < debugNameCount; ++i) {
-                    stmt.getDebugNames().add(input.readUTF());
-                }
                 stmt.setRightValue(readExpr(input));
                 stmt.setAsync(input.readBoolean());
                 return stmt;
@@ -749,7 +805,7 @@ public class AstIO {
     }
 
     private Expr readExpr(DataInput input) throws IOException {
-        NodeLocation location = readLocation(input);
+        TextLocation location = readLocation(input);
         Expr expr = readExprWithoutLocation(input);
         expr.setLocation(location);
         return expr;
@@ -761,6 +817,8 @@ public class AstIO {
             case 0: {
                 BinaryExpr expr = new BinaryExpr();
                 expr.setOperation(binaryOperations[input.readByte()]);
+                byte valueType = input.readByte();
+                expr.setType(valueType > 0 ? OperationType.values()[valueType] : null);
                 expr.setFirstOperand(readExpr(input));
                 expr.setSecondOperand(readExpr(input));
                 return expr;
@@ -768,6 +826,8 @@ public class AstIO {
             case 1: {
                 UnaryExpr expr = new UnaryExpr();
                 expr.setOperation(unaryOperations[input.readByte()]);
+                byte valueType = input.readByte();
+                expr.setType(valueType > 0 ? OperationType.values()[valueType] : null);
                 expr.setOperand(readExpr(input));
                 return expr;
             }
@@ -820,6 +880,7 @@ public class AstIO {
                 SubscriptExpr expr = new SubscriptExpr();
                 expr.setArray(readExpr(input));
                 expr.setIndex(readExpr(input));
+                expr.setType(ArrayType.values()[input.readByte()]);
                 return expr;
             }
             case 12: {
@@ -874,6 +935,19 @@ public class AstIO {
                 InstanceOfExpr expr = new InstanceOfExpr();
                 expr.setExpr(readExpr(input));
                 expr.setType(ValueType.parse(symbolTable.at(input.readInt())));
+                return expr;
+            }
+            case 23: {
+                CastExpr expr = new CastExpr();
+                expr.setTarget(ValueType.parse(symbolTable.at(input.readInt())));
+                expr.setValue(readExpr(input));
+                return expr;
+            }
+            case 24: {
+                PrimitiveCastExpr expr = new PrimitiveCastExpr();
+                expr.setSource(OperationType.values()[input.readByte()]);
+                expr.setTarget(OperationType.values()[input.readByte()]);
+                expr.setValue(readExpr(input));
                 return expr;
             }
             default:

@@ -20,17 +20,16 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import org.apache.commons.cli.*;
+import org.teavm.backend.wasm.render.WasmBinaryVersion;
 import org.teavm.tooling.RuntimeCopyOperation;
+import org.teavm.tooling.TeaVMTargetType;
 import org.teavm.tooling.TeaVMTool;
 import org.teavm.tooling.TeaVMToolException;
+import org.teavm.vm.TeaVMOptimizationLevel;
 import org.teavm.vm.TeaVMPhase;
 import org.teavm.vm.TeaVMProgressFeedback;
 import org.teavm.vm.TeaVMProgressListener;
 
-/**
- *
- * @author Alexey Andreev
- */
 public final class TeaVMRunner {
     private static long startTime;
     private static long phaseStartTime;
@@ -43,6 +42,11 @@ public final class TeaVMRunner {
     @SuppressWarnings("static-access")
     public static void main(String[] args) {
         Options options = new Options();
+        options.addOption(OptionBuilder
+                .withArgName("target")
+                .hasArg()
+                .withDescription("target type (javascript/js, webassembly/wasm)")
+                .create('t'));
         options.addOption(OptionBuilder
                 .withArgName("directory")
                 .hasArg()
@@ -60,6 +64,11 @@ public final class TeaVMRunner {
                 .withLongOpt("minify")
                 .create("m"));
         options.addOption(OptionBuilder
+                .withDescription("optimization level (1-3)")
+                .hasArg()
+                .withArgName("number")
+                .create("O"));
+        options.addOption(OptionBuilder
                 .withArgName("separate|merge|none")
                 .hasArg()
                 .withDescription("how to attach runtime. Possible values are: separate|merge|none")
@@ -70,17 +79,13 @@ public final class TeaVMRunner {
                 .withLongOpt("mainpage")
                 .create());
         options.addOption(OptionBuilder
-                .withDescription("causes TeaVM to log bytecode")
-                .withLongOpt("logbytecode")
-                .create());
-        options.addOption(OptionBuilder
                 .withDescription("Generate debug information")
                 .withLongOpt("debug")
-                .create('D'));
+                .create('g'));
         options.addOption(OptionBuilder
                 .withDescription("Generate source maps")
                 .withLongOpt("sourcemaps")
-                .create('S'));
+                .create('G'));
         options.addOption(OptionBuilder
                 .withDescription("Incremental build")
                 .withLongOpt("incremental")
@@ -101,6 +106,12 @@ public final class TeaVMRunner {
                 .withDescription("Additional classpath that will be reloaded by TeaVM each time in wait mode")
                 .withLongOpt("classpath")
                 .create('p'));
+        options.addOption(OptionBuilder
+                .withLongOpt("wasm-version")
+                .withArgName("version")
+                .hasArg()
+                .withDescription("WebAssembly binary version (11, 12)")
+                .create());
 
         if (args.length == 0) {
             printUsage(options);
@@ -116,7 +127,18 @@ public final class TeaVMRunner {
         }
 
         TeaVMTool tool = new TeaVMTool();
-        tool.setBytecodeLogging(commandLine.hasOption("logbytecode"));
+        if (commandLine.hasOption("t")) {
+            switch (commandLine.getOptionValue('t').toLowerCase()) {
+                case "javascript":
+                case "js":
+                    tool.setTargetType(TeaVMTargetType.JAVASCRIPT);
+                    break;
+                case "webassembly":
+                case "wasm":
+                    tool.setTargetType(TeaVMTargetType.WEBASSEMBLY);
+                    break;
+            }
+        }
         if (commandLine.hasOption("d")) {
             tool.setTargetDirectory(new File(commandLine.getOptionValue("d")));
         }
@@ -148,9 +170,36 @@ public final class TeaVMRunner {
         if (commandLine.hasOption("mainpage")) {
             tool.setMainPageIncluded(true);
         }
-        if (commandLine.hasOption('D')) {
+        if (commandLine.hasOption('g')) {
             tool.setDebugInformationGenerated(true);
         }
+
+        if (commandLine.hasOption("O")) {
+            int level;
+            try {
+                level = Integer.parseInt(commandLine.getOptionValue("O"));
+            } catch (NumberFormatException e) {
+                System.err.print("Wrong optimization level");
+                printUsage(options);
+                return;
+            }
+            switch (level) {
+                case 1:
+                    tool.setOptimizationLevel(TeaVMOptimizationLevel.SIMPLE);
+                    break;
+                case 2:
+                    tool.setOptimizationLevel(TeaVMOptimizationLevel.ADVANCED);
+                    break;
+                case 3:
+                    tool.setOptimizationLevel(TeaVMOptimizationLevel.FULL);
+                    break;
+                default:
+                    System.err.print("Wrong optimization level");
+                    printUsage(options);
+                    return;
+            }
+        }
+
         if (commandLine.hasOption('S')) {
             tool.setSourceMapsFileGenerated(true);
         }
@@ -165,7 +214,10 @@ public final class TeaVMRunner {
         if (commandLine.hasOption('p')) {
             classPath = commandLine.getOptionValues('p');
         }
+
         boolean interactive = commandLine.hasOption('w');
+        setupWasm(tool, commandLine, options);
+
         args = commandLine.getArgs();
         if (args.length > 1) {
             System.err.println("Unexpected arguments");
@@ -232,6 +284,29 @@ public final class TeaVMRunner {
         System.out.println("Build complete for " + ((System.currentTimeMillis() - startTime) / 1000.0) + " seconds");
     }
 
+    private static void setupWasm(TeaVMTool tool, CommandLine commandLine, Options options) {
+        if (commandLine.hasOption("wasm-version")) {
+            String value = commandLine.getOptionValue("wasm-version");
+            try {
+                int version = Integer.parseInt(value);
+                switch (version) {
+                    case 11:
+                        tool.setWasmVersion(WasmBinaryVersion.V_0xB);
+                        break;
+                    case 12:
+                        tool.setWasmVersion(WasmBinaryVersion.V_0xC);
+                        break;
+                    default:
+                        System.err.print("Wrong version value");
+                        printUsage(options);
+                }
+            } catch (NumberFormatException e) {
+                System.err.print("Wrong version value");
+                printUsage(options);
+            }
+        }
+    }
+
     private static void resetClassLoader(TeaVMTool tool) {
         if (classPath == null || classPath.length == 0) {
             return;
@@ -269,7 +344,7 @@ public final class TeaVMRunner {
                     case LINKING:
                         System.out.print("Linking methods...");
                         break;
-                    case DEVIRTUALIZATION:
+                    case OPTIMIZATION:
                         System.out.print("Applying devirtualization...");
                         break;
                     case DECOMPILATION:

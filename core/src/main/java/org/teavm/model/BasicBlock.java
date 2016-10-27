@@ -18,16 +18,13 @@ package org.teavm.model;
 import java.util.*;
 import org.teavm.model.instructions.InstructionReader;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class BasicBlock implements BasicBlockReader {
     private Program program;
     private int index;
     private List<Phi> phis = new ArrayList<>();
     private List<Instruction> instructions = new ArrayList<>();
-    List<TryCatchBlock> tryCatchBlocks = new ArrayList<>();
+    private List<TryCatchBlock> tryCatchBlocks = new ArrayList<>();
+    private Variable exceptionVariable;
 
     BasicBlock(Program program, int index) {
         this.program = program;
@@ -180,7 +177,7 @@ public class BasicBlock implements BasicBlockReader {
     @Override
     public void readAllInstructions(InstructionReader reader) {
         InstructionReadVisitor visitor = new InstructionReadVisitor(reader);
-        InstructionLocation location = null;
+        TextLocation location = null;
         for (Instruction insn : instructions) {
             if (!Objects.equals(location, insn.getLocation())) {
                 location = insn.getLocation();
@@ -250,5 +247,14 @@ public class BasicBlock implements BasicBlockReader {
 
     public List<TryCatchBlock> getTryCatchBlocks() {
         return safeTryCatchBlocks;
+    }
+
+    @Override
+    public Variable getExceptionVariable() {
+        return exceptionVariable;
+    }
+
+    public void setExceptionVariable(Variable exceptionVariable) {
+        this.exceptionVariable = exceptionVariable;
     }
 }

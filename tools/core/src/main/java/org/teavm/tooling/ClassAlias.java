@@ -15,10 +15,6 @@
  */
 package org.teavm.tooling;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ClassAlias {
     private String className;
     private String alias;

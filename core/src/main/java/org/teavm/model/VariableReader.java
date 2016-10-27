@@ -15,18 +15,12 @@
  */
 package org.teavm.model;
 
-import java.util.Set;
-
-/**
- *
- * @author Alexey Andreev
- */
 public interface VariableReader {
     int getIndex();
 
     ProgramReader getProgram();
 
-    Set<String> readDebugNames();
+    String getDebugName();
 
     int getRegister();
 }

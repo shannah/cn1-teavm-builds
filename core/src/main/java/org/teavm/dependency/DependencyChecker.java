@@ -42,16 +42,17 @@ import org.teavm.model.ElementModifier;
 import org.teavm.model.FieldHolder;
 import org.teavm.model.FieldReader;
 import org.teavm.model.FieldReference;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
+import org.teavm.model.ReferenceCache;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
+import org.teavm.model.optimization.UnreachableBasicBlockEliminator;
 import org.teavm.model.util.ModelUtils;
 import org.teavm.model.util.ProgramUtils;
-import org.teavm.optimization.UnreachableBasicBlockEliminator;
 import org.teavm.parsing.Parser;
 
 public class DependencyChecker implements DependencyInfo {
@@ -156,7 +157,7 @@ public class DependencyChecker implements DependencyInfo {
         ClassNode node = new ClassNode();
         org.objectweb.asm.ClassReader reader = new org.objectweb.asm.ClassReader(data);
         reader.accept(node, 0);
-        submitClass(Parser.parseClass(node));
+        submitClass(new Parser(new ReferenceCache()).parseClass(node));
         return node.name;
     }
 
@@ -272,7 +273,7 @@ public class DependencyChecker implements DependencyInfo {
         return dep;
     }
 
-    private boolean addClassAccess(DefaultCallGraphNode node, String className, InstructionLocation loc) {
+    private boolean addClassAccess(DefaultCallGraphNode node, String className, TextLocation loc) {
         if (!node.addClassAccess(className, loc)) {
             return false;
         }

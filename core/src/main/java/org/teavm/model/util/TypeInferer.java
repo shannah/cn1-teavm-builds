@@ -22,10 +22,6 @@ import org.teavm.common.IntegerStack;
 import org.teavm.model.*;
 import org.teavm.model.instructions.*;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TypeInferer {
     VariableType[] types;
     GraphBuilder builder;
@@ -45,22 +41,30 @@ public class TypeInferer {
         arrayElemBuilder = new GraphBuilder(sz);
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlockReader block = program.basicBlockAt(i);
+
+            if (block.getExceptionVariable() != null) {
+                types[block.getExceptionVariable().getIndex()] = VariableType.OBJECT;
+            }
+
             block.readAllInstructions(reader);
             for (PhiReader phi : block.readPhis()) {
                 for (IncomingReader incoming : phi.readIncomings()) {
                     builder.addEdge(incoming.getValue().getIndex(), phi.getReceiver().getIndex());
                 }
             }
+
             for (TryCatchBlockReader tryCatch : block.readTryCatchBlocks()) {
-                if (tryCatch.getExceptionVariable() != null) {
-                    types[tryCatch.getExceptionVariable().getIndex()] = VariableType.OBJECT;
+                for (TryCatchJointReader joint : tryCatch.readJoints()) {
+                    for (VariableReader sourceVar : joint.readSourceVariables()) {
+                        builder.addEdge(sourceVar.getIndex(), joint.getReceiver().getIndex());
+                    }
                 }
             }
         }
 
         IntegerStack stack = new IntegerStack(sz);
         Graph graph = builder.build();
-        Graph arrayElemGraph = builder.build();
+        Graph arrayElemGraph = arrayElemBuilder.build();
         for (int i = 0; i < sz; ++i) {
             if ((i >= graph.size() || graph.incomingEdgesCount(i) == 0)
                     && (i >= arrayElemGraph.size() || arrayElemGraph.incomingEdgesCount(i) == 0)) {
@@ -149,29 +153,6 @@ public class TypeInferer {
         }
     }
 
-    VariableType convert(ArrayElementType type) {
-        switch (type) {
-            case BYTE:
-                return VariableType.BYTE_ARRAY;
-            case CHAR:
-                return VariableType.CHAR_ARRAY;
-            case SHORT:
-                return VariableType.SHORT_ARRAY;
-            case INT:
-                return VariableType.INT_ARRAY;
-            case LONG:
-                return VariableType.LONG_ARRAY;
-            case FLOAT:
-                return VariableType.FLOAT_ARRAY;
-            case DOUBLE:
-                return VariableType.DOUBLE_ARRAY;
-            case OBJECT:
-                return VariableType.OBJECT_ARRAY;
-            default:
-                throw new AssertionError();
-        }
-    }
-
     VariableType convert(NumericOperandType type) {
         switch (type) {
             case INT:
@@ -210,27 +191,15 @@ public class TypeInferer {
         return VariableType.OBJECT_ARRAY;
     }
 
-    InstructionReader reader = new InstructionReader() {
+    InstructionReader reader = new AbstractInstructionReader() {
         @Override
         public void unwrapArray(VariableReader receiver, VariableReader array, ArrayElementType elementType) {
-            types[receiver.getIndex()] = convert(elementType);
+            builder.addEdge(array.getIndex(), receiver.getIndex());
         }
 
         @Override
         public void stringConstant(VariableReader receiver, String cst) {
             types[receiver.getIndex()] = VariableType.OBJECT;
-        }
-
-        @Override
-        public void raise(VariableReader exception) {
-        }
-
-        @Override
-        public void putField(VariableReader instance, FieldReference field, VariableReader value, ValueType fieldType) {
-        }
-
-        @Override
-        public void putElement(VariableReader array, VariableReader index, VariableReader value) {
         }
 
         @Override
@@ -244,43 +213,13 @@ public class TypeInferer {
         }
 
         @Override
-        public void nop() {
-        }
-
-        @Override
         public void negate(VariableReader receiver, VariableReader operand, NumericOperandType type) {
             types[receiver.getIndex()] = convert(type);
         }
 
         @Override
-        public void monitorExit(VariableReader objectRef) {
-        }
-
-        @Override
-        public void monitorEnter(VariableReader objectRef) {
-        }
-
-        @Override
         public void longConstant(VariableReader receiver, long cst) {
             types[receiver.getIndex()] = VariableType.LONG;
-        }
-
-        @Override
-        public void location(InstructionLocation location) {
-        }
-
-        @Override
-        public void jumpIf(BinaryBranchingCondition cond, VariableReader first, VariableReader second,
-                BasicBlockReader consequent, BasicBlockReader alternative) {
-        }
-
-        @Override
-        public void jumpIf(BranchingCondition cond, VariableReader operand, BasicBlockReader consequent,
-                BasicBlockReader alternative) {
-        }
-
-        @Override
-        public void jump(BasicBlockReader target) {
         }
 
         @Override
@@ -311,27 +250,20 @@ public class TypeInferer {
         }
 
         @Override
-        public void initClass(String className) {
-        }
-
-        @Override
         public void getField(VariableReader receiver, VariableReader instance, FieldReference field,
                 ValueType fieldType) {
             types[receiver.getIndex()] = convert(fieldType);
         }
 
         @Override
-        public void getElement(VariableReader receiver, VariableReader array, VariableReader index) {
+        public void getElement(VariableReader receiver, VariableReader array, VariableReader index,
+                ArrayElementType type) {
             arrayElemBuilder.addEdge(array.getIndex(), receiver.getIndex());
         }
 
         @Override
         public void floatConstant(VariableReader receiver, float cst) {
             types[receiver.getIndex()] = VariableType.FLOAT;
-        }
-
-        @Override
-        public void exit(VariableReader valueToReturn) {
         }
 
         @Override
@@ -366,11 +298,6 @@ public class TypeInferer {
         }
 
         @Override
-        public void choose(VariableReader condition, List<? extends SwitchTableEntryReader> table,
-                BasicBlockReader defaultTarget) {
-        }
-
-        @Override
         public void cast(VariableReader receiver, VariableReader value, IntegerSubtype type,
                 CastIntegerDirection targetType) {
             types[receiver.getIndex()] = VariableType.INT;
@@ -390,7 +317,14 @@ public class TypeInferer {
         @Override
         public void binary(BinaryOperation op, VariableReader receiver, VariableReader first, VariableReader second,
                 NumericOperandType type) {
-            types[receiver.getIndex()] = convert(type);
+            switch (op) {
+                case COMPARE:
+                    types[receiver.getIndex()] = VariableType.INT;
+                    break;
+                default:
+                    types[receiver.getIndex()] = convert(type);
+                    break;
+            }
         }
 
         @Override

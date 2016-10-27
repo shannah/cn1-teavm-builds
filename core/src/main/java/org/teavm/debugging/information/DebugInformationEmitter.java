@@ -15,13 +15,9 @@
  */
 package org.teavm.debugging.information;
 
-import org.teavm.codegen.LocationProvider;
+import org.teavm.backend.javascript.codegen.LocationProvider;
 import org.teavm.model.MethodDescriptor;
 
-/**
- *
- * @author Alexey Andreev
- */
 public interface DebugInformationEmitter {
     void setLocationProvider(LocationProvider locationProvider);
 

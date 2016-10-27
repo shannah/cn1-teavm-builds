@@ -39,11 +39,11 @@ import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.ElementModifier;
 import org.teavm.model.Instruction;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.model.Variable;
 import org.teavm.model.instructions.DoubleConstantInstruction;
@@ -271,6 +271,8 @@ public final class MetaprogrammingImpl {
                     arguments[i] = new ValueImpl<>(var, nestedVarContext, argType);
                 }
 
+                generator.program.createBasicBlock();
+                generator.blockIndex = 1;
                 handler.invoke(new ValueImpl<>(thisVar, nestedVarContext, innerType), methodImpl, arguments);
                 close();
 
@@ -405,7 +407,7 @@ public final class MetaprogrammingImpl {
             MethodReader method = ((ReflectMethodImpl) location.getMethod()).method;
             return location.getFileName() != null
                     ? new CallLocation(method.getReference(),
-                            new InstructionLocation(location.getFileName(), location.getLineNumber()))
+                            new TextLocation(location.getFileName(), location.getLineNumber()))
                     : new CallLocation(method.getReference());
         }
     };
