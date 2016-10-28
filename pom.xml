@@ -18,7 +18,7 @@
 
   <groupId>org.teavm</groupId>
   <artifactId>teavm</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.0-cn1-006</version>
   <packaging>pom</packaging>
 
   <name>TeaVM</name>
@@ -48,7 +48,7 @@
     <url>https://github.com/shannah/cn1-teavm-builds</url>
     <developerConnection>scm:git:https://github.com/shannah/cn1-teavm-builds.git</developerConnection>
 	<connection>scm:git:https://github.com/shannah/cn1-teavm-builds.git</connection>
-    <tag>HEAD</tag>
+    <tag>1.0.0-cn1-006</tag>
   </scm>
 
   <distributionManagement>
