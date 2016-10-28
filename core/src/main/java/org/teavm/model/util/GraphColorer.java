@@ -15,19 +15,34 @@
  */
 package org.teavm.model.util;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
+import org.teavm.common.Graph;
 import org.teavm.common.IntegerArray;
-import org.teavm.common.MutableGraphEdge;
-import org.teavm.common.MutableGraphNode;
 
-class GraphColorer {
-    public void colorize(List<MutableGraphNode> graph, int[] colors) {
-        colorize(graph, colors, new int[graph.size()]);
+public class GraphColorer {
+    public void colorize(Graph graph, int[] colors) {
+        colorize(graph, colors, new int[graph.size()], new String[graph.size()]);
     }
 
-    public void colorize(List<MutableGraphNode> graph, int[] colors, int[] categories) {
+    public void colorize(Graph graph, int[] colors, int[] categories, String[] names) {
         IntegerArray colorCategories = new IntegerArray(graph.size());
+        List<String> colorNames = new ArrayList<>();
+        for (int i = 0; i < colors.length; ++i) {
+            int color = colors[i];
+            if (colors[i] < 0) {
+                continue;
+            }
+            while (colorCategories.size() <= color) {
+                colorCategories.add(-1);
+            }
+            while (colorNames.size() <= color) {
+                colorNames.add(null);
+            }
+            colorCategories.set(color, categories[i]);
+            colorNames.set(color, names[i]);
+        }
         BitSet usedColors = new BitSet();
         for (int v : getOrdering(graph)) {
             if (colors[v] >= 0) {
@@ -35,8 +50,7 @@ class GraphColorer {
             }
             usedColors.clear();
             usedColors.set(0);
-            for (MutableGraphEdge edge : graph.get(v).getEdges()) {
-                int succ = edge.getSecond().getTag();
+            for (int succ : graph.outgoingEdges(v)) {
                 if (colors[succ] >= 0) {
                     usedColors.set(colors[succ]);
                 }
@@ -46,11 +60,19 @@ class GraphColorer {
                 color = usedColors.nextClearBit(color);
                 while (colorCategories.size() <= color) {
                     colorCategories.add(-1);
+                    colorNames.add(null);
                 }
                 int category = colorCategories.get(color);
-                if (category < 0 || category == categories[v]) {
+                String name = colorNames.get(color);
+                if ((category < 0 || category == categories[v])
+                        && (name == null || names[v] == null || name.equals(names[v]))) {
                     colors[v] = color;
                     colorCategories.set(color, categories[v]);
+                    if (names[v] != null) {
+                        colorNames.set(color, names[v]);
+                    } else {
+                        names[v] = name;
+                    }
                     break;
                 }
                 ++color;
@@ -58,7 +80,7 @@ class GraphColorer {
         }
     }
 
-    private int[] getOrdering(List<MutableGraphNode> graph) {
+    private int[] getOrdering(Graph graph) {
         boolean[] visited = new boolean[graph.size()];
         int[] ordering = new int[graph.size()];
         int index = 0;
@@ -80,8 +102,7 @@ class GraphColorer {
                 }
                 visited[v] = true;
                 ordering[index++] = v;
-                for (MutableGraphEdge edge : graph.get(v).getEdges()) {
-                    int succ = edge.getSecond().getTag();
+                for (int succ : graph.outgoingEdges(v)) {
                     if (visited[succ]) {
                         continue;
                     }

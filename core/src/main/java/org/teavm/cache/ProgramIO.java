@@ -43,13 +43,12 @@ public class ProgramIO {
         for (int i = 0; i < program.variableCount(); ++i) {
             Variable var = program.variableAt(i);
             data.writeShort(var.getRegister());
-            data.writeShort(var.getDebugNames().size());
-            for (String debugString : var.getDebugNames()) {
-                data.writeUTF(debugString);
-            }
+            data.writeUTF(var.getDebugName() != null ? var.getDebugName() : "");
         }
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock basicBlock = program.basicBlockAt(i);
+            data.writeShort(basicBlock.getExceptionVariable() != null
+                    ? basicBlock.getExceptionVariable().getIndex() : -1);
             data.writeShort(basicBlock.getPhis().size());
             data.writeShort(basicBlock.getTryCatchBlocks().size());
             for (Phi phi : basicBlock.getPhis()) {
@@ -63,20 +62,17 @@ public class ProgramIO {
             for (TryCatchBlock tryCatch : basicBlock.getTryCatchBlocks()) {
                 data.writeInt(tryCatch.getExceptionType() != null ? symbolTable.lookup(
                         tryCatch.getExceptionType()) : -1);
-                data.writeShort(tryCatch.getExceptionVariable() != null
-                        ? tryCatch.getExceptionVariable().getIndex() : -1);
                 data.writeShort(tryCatch.getHandler().getIndex());
-            }
-            data.writeShort(basicBlock.getTryCatchJoints().size());
-            for (TryCatchJoint joint : basicBlock.getTryCatchJoints()) {
-                data.writeShort(joint.getSource().getIndex());
-                data.writeShort(joint.getReceiver().getIndex());
-                data.writeShort(joint.getSourceVariables().size());
-                for (Variable sourceVar : joint.getSourceVariables()) {
-                    data.writeShort(sourceVar.getIndex());
+                data.writeShort(tryCatch.getJoints().size());
+                for (TryCatchJoint joint : tryCatch.getJoints()) {
+                    data.writeShort(joint.getReceiver().getIndex());
+                    data.writeShort(joint.getSourceVariables().size());
+                    for (Variable sourceVar : joint.getSourceVariables()) {
+                        data.writeShort(sourceVar.getIndex());
+                    }
                 }
             }
-            InstructionLocation location = null;
+            TextLocation location = null;
             InstructionWriter insnWriter = new InstructionWriter(data);
             for (Instruction insn : basicBlock.getInstructions()) {
                 try {
@@ -107,9 +103,9 @@ public class ProgramIO {
         for (int i = 0; i < varCount; ++i) {
             Variable var = program.createVariable();
             var.setRegister(data.readShort());
-            int debugNameCount = data.readShort();
-            for (int j = 0; j < debugNameCount; ++j) {
-                var.getDebugNames().add(data.readUTF());
+            var.setDebugName(data.readUTF());
+            if (var.getDebugName().isEmpty()) {
+                var.setDebugName(null);
             }
         }
         for (int i = 0; i < basicBlockCount; ++i) {
@@ -117,6 +113,12 @@ public class ProgramIO {
         }
         for (int i = 0; i < basicBlockCount; ++i) {
             BasicBlock block = program.basicBlockAt(i);
+
+            short varIndex = data.readShort();
+            if (varIndex >= 0) {
+                block.setExceptionVariable(program.variableAt(varIndex));
+            }
+
             int phiCount = data.readShort();
             int tryCatchCount = data.readShort();
             for (int j = 0; j < phiCount; ++j) {
@@ -137,27 +139,23 @@ public class ProgramIO {
                 if (typeIndex >= 0) {
                     tryCatch.setExceptionType(symbolTable.at(typeIndex));
                 }
-                short varIndex = data.readShort();
-                if (varIndex >= 0) {
-                    tryCatch.setExceptionVariable(program.variableAt(varIndex));
-                }
                 tryCatch.setHandler(program.basicBlockAt(data.readShort()));
+
+                int jointCount = data.readShort();
+                for (int k = 0; k < jointCount; ++k) {
+                    TryCatchJoint joint = new TryCatchJoint();
+                    joint.setReceiver(program.variableAt(data.readShort()));
+                    int jointSourceCount = data.readShort();
+                    for (int m = 0; m < jointSourceCount; ++m) {
+                        joint.getSourceVariables().add(program.variableAt(data.readShort()));
+                    }
+                    tryCatch.getJoints().add(joint);
+                }
+
                 block.getTryCatchBlocks().add(tryCatch);
             }
 
-            int jointCount = data.readShort();
-            for (int j = 0; j < jointCount; ++j) {
-                TryCatchJoint joint = new TryCatchJoint();
-                joint.setSource(program.basicBlockAt(data.readShort()));
-                joint.setReceiver(program.variableAt(data.readShort()));
-                int jointSourceCount = data.readShort();
-                for (int k = 0; k < jointSourceCount; ++k) {
-                    joint.getSourceVariables().add(program.variableAt(data.readShort()));
-                }
-                block.getTryCatchJoints().add(joint);
-            }
-
-            InstructionLocation location = null;
+            TextLocation location = null;
             insnLoop: while (true) {
                 byte insnType = data.readByte();
                 switch (insnType) {
@@ -169,7 +167,7 @@ public class ProgramIO {
                     case -3: {
                         String file = fileTable.at(data.readShort());
                         short line = data.readShort();
-                        location = new InstructionLocation(file, line);
+                        location = new TextLocation(file, line);
                         break;
                     }
                     default: {
@@ -535,6 +533,7 @@ public class ProgramIO {
         public void visit(GetElementInstruction insn) {
             try {
                 output.writeByte(31);
+                output.writeByte(insn.getType().ordinal());
                 output.writeShort(insn.getReceiver().getIndex());
                 output.writeShort(insn.getArray().getIndex());
                 output.writeShort(insn.getIndex().getIndex());
@@ -547,6 +546,7 @@ public class ProgramIO {
         public void visit(PutElementInstruction insn) {
             try {
                 output.writeByte(32);
+                output.writeByte(insn.getType().ordinal());
                 output.writeShort(insn.getArray().getIndex());
                 output.writeShort(insn.getIndex().getIndex());
                 output.writeShort(insn.getValue().getIndex());
@@ -964,14 +964,14 @@ public class ProgramIO {
                 return insn;
             }
             case 31: {
-                GetElementInstruction insn = new GetElementInstruction();
+                GetElementInstruction insn = new GetElementInstruction(arrayElementTypes[input.readByte()]);
                 insn.setReceiver(program.variableAt(input.readShort()));
                 insn.setArray(program.variableAt(input.readShort()));
                 insn.setIndex(program.variableAt(input.readShort()));
                 return insn;
             }
             case 32: {
-                PutElementInstruction insn = new PutElementInstruction();
+                PutElementInstruction insn = new PutElementInstruction(arrayElementTypes[input.readByte()]);
                 insn.setArray(program.variableAt(input.readShort()));
                 insn.setIndex(program.variableAt(input.readShort()));
                 insn.setValue(program.variableAt(input.readShort()));

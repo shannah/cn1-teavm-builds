@@ -28,16 +28,8 @@ public class ListingBuilder {
         for (int i = 0; i < program.variableCount(); ++i) {
             sb.append(prefix).append("var @").append(i);
             VariableReader var = program.variableAt(i);
-            if (!var.readDebugNames().isEmpty()) {
-                sb.append(" as ");
-                boolean first = true;
-                for (String debugName : var.readDebugNames()) {
-                    if (!first) {
-                        sb.append(", ");
-                    }
-                    first = false;
-                    sb.append(debugName);
-                }
+            if (var != null && var.getDebugName() != null) {
+                sb.append(" as ").append(var.getDebugName());
             }
             sb.append('\n');
         }
@@ -48,12 +40,10 @@ public class ListingBuilder {
                 continue;
             }
 
-            for (TryCatchJointReader joint : block.readTryCatchJoints()) {
-                sb.append("  @").append(joint.getReceiver().getIndex()).append(" := e-phi(");
-                sb.append(joint.readSourceVariables().stream().map(sourceVar -> "@" + sourceVar.getIndex())
-                        .collect(Collectors.joining(", ")));
-                sb.append(") from $").append(joint.getSource().getIndex()).append("\n");
+            if (block.getExceptionVariable() != null) {
+                sb.append("    @").append(block.getExceptionVariable().getIndex()).append(" = exception\n");
             }
+
             for (PhiReader phi : block.readPhis()) {
                 sb.append(prefix).append("    ");
                 sb.append("@").append(phi.getReceiver().getIndex()).append(" := ");
@@ -69,7 +59,7 @@ public class ListingBuilder {
                 sb.append("\n");
             }
 
-            InstructionLocation location = null;
+            TextLocation location = null;
             for (int j = 0; j < block.instructionCount(); ++j) {
                 insnSb.setLength(0);
                 block.readInstruction(j, stringifier);
@@ -81,10 +71,15 @@ public class ListingBuilder {
                 sb.append(prefix).append("    ").append(insnSb).append("\n");
             }
             for (TryCatchBlockReader tryCatch : block.readTryCatchBlocks()) {
-                sb.append(prefix).append("    catch ").append(tryCatch.getExceptionType()).append(" @")
-                        .append(tryCatch.getExceptionVariable().getIndex())
+                sb.append(prefix).append("    catch ").append(tryCatch.getExceptionType())
                         .append(" -> $").append(tryCatch.getHandler().getIndex());
                 sb.append("\n");
+                for (TryCatchJointReader joint : tryCatch.readJoints()) {
+                    sb.append("      @").append(joint.getReceiver().getIndex()).append(" := e-phi(");
+                    sb.append(joint.readSourceVariables().stream().map(sourceVar -> "@" + sourceVar.getIndex())
+                            .collect(Collectors.joining(", ")));
+                    sb.append(")\n");
+                }
             }
         }
         return sb.toString();

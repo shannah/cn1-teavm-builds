@@ -81,7 +81,11 @@ public class TeaVMEntryPoint {
         method.use();
     }
 
-    String getPublicName() {
+    public MethodReference getReference() {
+        return reference;
+    }
+
+    public String getPublicName() {
         return publicName;
     }
 

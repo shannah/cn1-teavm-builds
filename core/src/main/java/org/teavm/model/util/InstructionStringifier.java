@@ -26,19 +26,19 @@ import org.teavm.model.instructions.*;
  * @author Alexey Andreev
  */
 public class InstructionStringifier implements InstructionReader {
-    private InstructionLocation location;
+    private TextLocation location;
     private StringBuilder sb;
 
     public InstructionStringifier(StringBuilder sb) {
         this.sb = sb;
     }
 
-    public InstructionLocation getLocation() {
+    public TextLocation getLocation() {
         return location;
     }
 
     @Override
-    public void location(InstructionLocation location) {
+    public void location(TextLocation location) {
         this.location = location;
     }
 
@@ -307,13 +307,14 @@ public class InstructionStringifier implements InstructionReader {
     }
 
     @Override
-    public void getElement(VariableReader receiver, VariableReader array, VariableReader index) {
+    public void getElement(VariableReader receiver, VariableReader array, VariableReader index,
+            ArrayElementType type) {
         sb.append("@").append(receiver.getIndex()).append(" := @").append(array.getIndex()).append("[@")
                 .append(index.getIndex()).append("]");
     }
 
     @Override
-    public void putElement(VariableReader array, VariableReader index, VariableReader value) {
+    public void putElement(VariableReader array, VariableReader index, VariableReader value, ArrayElementType type) {
         sb.append("@").append(array.getIndex()).append("[@").append(index.getIndex()).append("] := @")
                 .append(value.getIndex());
     }

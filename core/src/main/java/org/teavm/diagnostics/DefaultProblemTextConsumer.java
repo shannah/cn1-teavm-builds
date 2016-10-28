@@ -16,14 +16,10 @@
 package org.teavm.diagnostics;
 
 import org.teavm.model.FieldReference;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodReference;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class DefaultProblemTextConsumer implements ProblemTextConsumer {
     private StringBuilder sb = new StringBuilder();
 
@@ -56,7 +52,7 @@ public class DefaultProblemTextConsumer implements ProblemTextConsumer {
     }
 
     @Override
-    public void appendLocation(InstructionLocation location) {
+    public void appendLocation(TextLocation location) {
         sb.append(location);
     }
 

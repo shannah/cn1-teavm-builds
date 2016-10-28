@@ -15,10 +15,28 @@
  */
 package org.teavm.cache;
 
-import java.io.*;
-import java.util.*;
-import org.teavm.javascript.MethodNodeCache;
-import org.teavm.javascript.ast.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInput;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import org.teavm.ast.AsyncMethodNode;
+import org.teavm.ast.AsyncMethodPart;
+import org.teavm.ast.InvocationExpr;
+import org.teavm.ast.QualificationExpr;
+import org.teavm.ast.RecursiveVisitor;
+import org.teavm.ast.RegularMethodNode;
+import org.teavm.ast.cache.MethodNodeCache;
 import org.teavm.model.MethodReference;
 import org.teavm.parsing.ClassDateProvider;
 
@@ -147,172 +165,19 @@ public class DiskRegularMethodNodeCache implements MethodNodeCache {
                 + (async ? "-async" : ""));
     }
 
-    private static class AstDependencyAnalyzer implements StatementVisitor, ExprVisitor {
+    private static class AstDependencyAnalyzer extends RecursiveVisitor {
         final Set<String> dependencies = new HashSet<>();
-
-        private void visitSequence(List<Statement> statements) {
-            for (Statement stmt : statements) {
-                stmt.acceptVisitor(this);
-            }
-        }
-
-        @Override
-        public void visit(AssignmentStatement statement) {
-            if (statement.getLeftValue() != null) {
-                statement.getLeftValue().acceptVisitor(this);
-            }
-            statement.getRightValue().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(SequentialStatement statement) {
-            visitSequence(statement.getSequence());
-        }
-
-        @Override
-        public void visit(ConditionalStatement statement) {
-            statement.getCondition().acceptVisitor(this);
-            visitSequence(statement.getConsequent());
-            visitSequence(statement.getAlternative());
-        }
-
-        @Override
-        public void visit(SwitchStatement statement) {
-            statement.getValue().acceptVisitor(this);
-            for (SwitchClause clause : statement.getClauses()) {
-                visitSequence(clause.getBody());
-            }
-            visitSequence(statement.getDefaultClause());
-        }
-
-        @Override
-        public void visit(WhileStatement statement) {
-            if (statement.getCondition() != null) {
-                statement.getCondition().acceptVisitor(this);
-            }
-            visitSequence(statement.getBody());
-        }
-
-        @Override
-        public void visit(BlockStatement statement) {
-            visitSequence(statement.getBody());
-        }
-
-        @Override
-        public void visit(BreakStatement statement) {
-        }
-
-        @Override
-        public void visit(ContinueStatement statement) {
-        }
-
-        @Override
-        public void visit(ReturnStatement statement) {
-            if (statement.getResult() != null) {
-                statement.getResult().acceptVisitor(this);
-            }
-        }
-
-        @Override
-        public void visit(ThrowStatement statement) {
-            statement.getException().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(InitClassStatement statement) {
-        }
-
-        @Override
-        public void visit(TryCatchStatement statement) {
-            visitSequence(statement.getProtectedBody());
-            visitSequence(statement.getHandler());
-        }
-
-        @Override
-        public void visit(BinaryExpr expr) {
-            expr.getFirstOperand().acceptVisitor(this);
-            expr.getSecondOperand().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(UnaryExpr expr) {
-            expr.getOperand().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(ConditionalExpr expr) {
-            expr.getCondition().acceptVisitor(this);
-            expr.getConsequent().acceptVisitor(this);
-            expr.getAlternative().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(ConstantExpr expr) {
-        }
-
-        @Override
-        public void visit(VariableExpr expr) {
-        }
-
-        @Override
-        public void visit(SubscriptExpr expr) {
-            expr.getArray().acceptVisitor(this);
-            expr.getIndex().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(UnwrapArrayExpr expr) {
-            expr.getArray().acceptVisitor(this);
-        }
 
         @Override
         public void visit(InvocationExpr expr) {
+            super.visit(expr);
             dependencies.add(expr.getMethod().getClassName());
-            for (Expr argument : expr.getArguments()) {
-                argument.acceptVisitor(this);
-            }
         }
 
         @Override
         public void visit(QualificationExpr expr) {
+            super.visit(expr);
             dependencies.add(expr.getField().getClassName());
-            if (expr.getQualified() != null) {
-                expr.getQualified().acceptVisitor(this);
-            }
-        }
-
-        @Override
-        public void visit(NewExpr expr) {
-        }
-
-        @Override
-        public void visit(NewArrayExpr expr) {
-            expr.getLength().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(NewMultiArrayExpr expr) {
-            for (Expr dimension : expr.getDimensions()) {
-                dimension.acceptVisitor(this);
-            }
-        }
-
-        @Override
-        public void visit(InstanceOfExpr expr) {
-            expr.getExpr().acceptVisitor(this);
-        }
-
-        @Override
-        public void visit(GotoPartStatement statement) {
-        }
-
-        @Override
-        public void visit(MonitorEnterStatement statement) {
-
-        }
-
-        @Override
-        public void visit(MonitorExitStatement statement) {
         }
     }
 

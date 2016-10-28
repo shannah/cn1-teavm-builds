@@ -25,11 +25,11 @@ import org.teavm.model.BasicBlockReader;
 import org.teavm.model.Incoming;
 import org.teavm.model.IncomingReader;
 import org.teavm.model.Instruction;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.Phi;
 import org.teavm.model.PhiReader;
 import org.teavm.model.Program;
 import org.teavm.model.ProgramReader;
+import org.teavm.model.TextLocation;
 import org.teavm.model.TryCatchBlock;
 import org.teavm.model.TryCatchBlockReader;
 import org.teavm.model.TryCatchJoint;
@@ -62,7 +62,7 @@ public final class ProgramUtils {
         return graphBuilder.build();
     }
 
-    public static Map<InstructionLocation, InstructionLocation[]> getLocationCFG(Program program) {
+    public static Map<TextLocation, TextLocation[]> getLocationCFG(Program program) {
         return new LocationGraphBuilder().build(program);
     }
 
@@ -70,7 +70,7 @@ public final class ProgramUtils {
         Program copy = new Program();
         for (int i = 0; i < program.variableCount(); ++i) {
             Variable var = copy.createVariable();
-            var.getDebugNames().addAll(program.variableAt(i).readDebugNames());
+            var.setDebugName(program.variableAt(i).getDebugName());
         }
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             copy.createBasicBlock();
@@ -78,12 +78,20 @@ public final class ProgramUtils {
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlockReader block = program.basicBlockAt(i);
             BasicBlock blockCopy = copy.basicBlockAt(i);
-            blockCopy.getInstructions().addAll(copyInstructions(block, 0, block.instructionCount(), copy));
-            blockCopy.getPhis().addAll(copyPhis(block, copy));
-            blockCopy.getTryCatchBlocks().addAll(copyTryCatches(block, copy));
-            blockCopy.getTryCatchJoints().addAll(copyTryCatchJoints(block, copy));
+            copyBasicBlock(block, blockCopy);
         }
         return copy;
+    }
+
+    public static void copyBasicBlock(BasicBlockReader block, BasicBlock target) {
+        Program targetProgram = target.getProgram();
+
+        if (block.getExceptionVariable() != null) {
+            target.setExceptionVariable(targetProgram.variableAt(block.getExceptionVariable().getIndex()));
+        }
+        target.getInstructions().addAll(copyInstructions(block, 0, block.instructionCount(), targetProgram));
+        target.getPhis().addAll(copyPhis(block, targetProgram));
+        target.getTryCatchBlocks().addAll(copyTryCatches(block, targetProgram));
     }
 
     public static List<Instruction> copyInstructions(BasicBlockReader block, int from, int to, Program target) {
@@ -117,18 +125,17 @@ public final class ProgramUtils {
         for (TryCatchBlockReader tryCatch : block.readTryCatchBlocks()) {
             TryCatchBlock tryCatchCopy = new TryCatchBlock();
             tryCatchCopy.setExceptionType(tryCatch.getExceptionType());
-            tryCatchCopy.setExceptionVariable(target.variableAt(tryCatch.getExceptionVariable().getIndex()));
             tryCatchCopy.setHandler(target.basicBlockAt(tryCatch.getHandler().getIndex()));
+            tryCatchCopy.getJoints().addAll(copyTryCatchJoints(tryCatch, target));
             result.add(tryCatchCopy);
         }
         return result;
     }
 
-    public static List<TryCatchJoint> copyTryCatchJoints(BasicBlockReader block, Program target) {
+    public static List<TryCatchJoint> copyTryCatchJoints(TryCatchBlockReader block, Program target) {
         List<TryCatchJoint> result = new ArrayList<>();
-        for (TryCatchJointReader joint : block.readTryCatchJoints()) {
+        for (TryCatchJointReader joint : block.readJoints()) {
             TryCatchJoint jointCopy = new TryCatchJoint();
-            jointCopy.setSource(target.basicBlockAt(joint.getSource().getIndex()));
             jointCopy.setReceiver(target.variableAt(joint.getReceiver().getIndex()));
             for (VariableReader sourceVar : joint.readSourceVariables()) {
                 jointCopy.getSourceVariables().add(target.variableAt(sourceVar.getIndex()));
@@ -156,19 +163,34 @@ public final class ProgramUtils {
         return outputs;
     }
 
-    public static List<List<TryCatchJoint>> getOutputJoints(Program program) {
-        List<List<TryCatchJoint>> outputs = new ArrayList<>(program.basicBlockCount());
-        for (int i = 0; i < program.basicBlockCount(); ++i) {
-            outputs.add(new ArrayList<>());
-        }
-
+    public static BasicBlock[] getVariableDefinitionPlaces(Program program) {
+        BasicBlock[] places = new BasicBlock[program.variableCount()];
+        DefinitionExtractor defExtractor = new DefinitionExtractor();
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock block = program.basicBlockAt(i);
-            for (TryCatchJoint joint : block.getTryCatchJoints()) {
-                outputs.get(joint.getSource().getIndex()).add(joint);
+
+            Variable exceptionVar = block.getExceptionVariable();
+            if (exceptionVar != null) {
+                places[exceptionVar.getIndex()] = block;
+            }
+
+            for (Phi phi : block.getPhis()) {
+                places[phi.getReceiver().getIndex()] = block;
+            }
+
+            for (Instruction insn : block.getInstructions()) {
+                insn.acceptVisitor(defExtractor);
+                for (Variable var : defExtractor.getDefinedVariables()) {
+                    places[var.getIndex()] = block;
+                }
+            }
+
+            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
+                for (TryCatchJoint joint : tryCatch.getJoints()) {
+                    places[joint.getReceiver().getIndex()] = block;
+                }
             }
         }
-
-        return outputs;
+        return places;
     }
 }

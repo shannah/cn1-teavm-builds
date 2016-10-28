@@ -8,11 +8,12 @@ import java.util.HashSet;
 import java.util.ServiceLoader;
 import java.util.Set;
 import org.apache.commons.io.IOUtils;
+import org.teavm.backend.javascript.rendering.RenderingUtil;
 import org.teavm.classlib.ResourceSupplier;
-import org.teavm.codegen.SourceWriter;
-import org.teavm.javascript.Renderer;
-import org.teavm.javascript.spi.Injector;
-import org.teavm.javascript.spi.InjectorContext;
+import org.teavm.backend.javascript.codegen.SourceWriter;
+import org.teavm.backend.javascript.rendering.Renderer;
+import org.teavm.backend.javascript.spi.Injector;
+import org.teavm.backend.javascript.spi.InjectorContext;
 import org.teavm.model.MethodReference;
 
 /**
@@ -54,7 +55,7 @@ public class ClassLoaderNativeGenerator implements Injector {
                 first = false;
                 writer.newLine();
                 String data = Base64.getEncoder().encodeToString(IOUtils.toByteArray(input));
-                writer.append("\"").append(Renderer.escapeString(resource)).append("\"");
+                writer.append("\"").append(RenderingUtil.escapeString(resource)).append("\"");
                 writer.ws().append(':').ws();
                 writer.append("\"").append(data).append("\"");
             }

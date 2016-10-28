@@ -26,14 +26,35 @@ import java.util.Map;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.JSRInlinerAdapter;
-import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.AnnotationNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.teavm.common.Graph;
 import org.teavm.common.GraphUtils;
-import org.teavm.model.*;
+import org.teavm.model.AccessLevel;
+import org.teavm.model.AnnotationContainer;
+import org.teavm.model.AnnotationHolder;
+import org.teavm.model.AnnotationValue;
+import org.teavm.model.BasicBlock;
+import org.teavm.model.ClassHolder;
+import org.teavm.model.ElementHolder;
+import org.teavm.model.ElementModifier;
+import org.teavm.model.FieldHolder;
+import org.teavm.model.FieldReference;
+import org.teavm.model.Instruction;
+import org.teavm.model.MethodDescriptor;
+import org.teavm.model.MethodHolder;
+import org.teavm.model.Phi;
+import org.teavm.model.PrimitiveType;
+import org.teavm.model.Program;
+import org.teavm.model.ReferenceCache;
+import org.teavm.model.ValueType;
+import org.teavm.model.Variable;
+import org.teavm.model.optimization.UnreachableBasicBlockEliminator;
 import org.teavm.model.util.DefinitionExtractor;
 import org.teavm.model.util.PhiUpdater;
 import org.teavm.model.util.ProgramUtils;
-import org.teavm.optimization.UnreachableBasicBlockEliminator;
 
 public class Parser {
     private ReferenceCache referenceCache;
@@ -64,6 +85,8 @@ public class Parser {
         applyDebugNames(program, phiUpdater, programParser, argumentMapping);
 
         parseAnnotations(method.getAnnotations(), node.visibleAnnotations, node.invisibleAnnotations);
+        applyDebugNames(program, phiUpdater, programParser,
+                applySignature(program, method.getDescriptor().getParameterTypes()));
         while (program.variableCount() <= method.parameterCount()) {
             program.createVariable();
         }
@@ -78,7 +101,7 @@ public class Parser {
         return method;
     }
 
-    private void applyDebugNames(Program program, PhiUpdater phiUpdater, ProgramParser parser,
+    private static void applyDebugNames(Program program, PhiUpdater phiUpdater, ProgramParser parser,
             Variable[] argumentMapping) {
         if (program.basicBlockCount() == 0) {
             return;
@@ -106,14 +129,14 @@ public class Parser {
                 for (Map.Entry<Integer, String> debugName : debugNames.entrySet()) {
                     int receiver = varMap.getOrDefault(debugName.getKey(), -1);
                     if (receiver >= 0) {
-                        program.variableAt(receiver).getDebugNames().add(debugName.getValue());
+                        program.variableAt(receiver).setDebugName(debugName.getValue());
                     }
                 }
             }
         }
     }
 
-    private IntIntMap[] getBlockEntryVariableMappings(Program program, PhiUpdater phiUpdater,
+    private static IntIntMap[] getBlockEntryVariableMappings(Program program, PhiUpdater phiUpdater,
             Variable[] argumentMapping) {
         class Step {
             int node;
@@ -147,13 +170,6 @@ public class Parser {
             IntIntMap varMap = new IntIntOpenHashMap(step.varMap);
             BasicBlock block = program.basicBlockAt(node);
 
-            for (TryCatchJoint joint : block.getTryCatchJoints()) {
-                int receiver = joint.getReceiver().getIndex();
-                int sourceVar = phiUpdater.getSourceVariable(receiver);
-                if (sourceVar >= 0) {
-                    varMap.put(sourceVar, receiver);
-                }
-            }
             for (Phi phi : block.getPhis()) {
                 int receiver = phi.getReceiver().getIndex();
                 int sourceVar = phiUpdater.getSourceVariable(receiver);

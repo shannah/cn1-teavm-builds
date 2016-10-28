@@ -24,8 +24,7 @@ public class BasicBlock implements BasicBlockReader {
     private List<Phi> phis = new ArrayList<>();
     private List<Instruction> instructions = new ArrayList<>();
     private List<TryCatchBlock> tryCatchBlocks = new ArrayList<>();
-    private List<TryCatchJoint> joints = new ArrayList<>();
-    private List<TryCatchJointReader> immutableJoints;
+    private Variable exceptionVariable;
 
     BasicBlock(Program program, int index) {
         this.program = program;
@@ -178,7 +177,7 @@ public class BasicBlock implements BasicBlockReader {
     @Override
     public void readAllInstructions(InstructionReader reader) {
         InstructionReadVisitor visitor = new InstructionReadVisitor(reader);
-        InstructionLocation location = null;
+        TextLocation location = null;
         for (Instruction insn : instructions) {
             if (!Objects.equals(location, insn.getLocation())) {
                 location = insn.getLocation();
@@ -195,12 +194,6 @@ public class BasicBlock implements BasicBlockReader {
                 if (incomings.get(i).getSource() == predecessor) {
                     incomings.remove(i--);
                 }
-            }
-        }
-        for (int i = 0; i < joints.size(); ++i) {
-            TryCatchJoint joint = joints.get(i);
-            if (joint.getSource() == predecessor) {
-                joints.remove(i--);
             }
         }
     }
@@ -256,15 +249,12 @@ public class BasicBlock implements BasicBlockReader {
         return safeTryCatchBlocks;
     }
 
-    public List<TryCatchJoint> getTryCatchJoints() {
-        return joints;
+    @Override
+    public Variable getExceptionVariable() {
+        return exceptionVariable;
     }
 
-    @Override
-    public List<TryCatchJointReader> readTryCatchJoints() {
-        if (immutableJoints == null) {
-            immutableJoints = Collections.unmodifiableList(joints);
-        }
-        return immutableJoints;
+    public void setExceptionVariable(Variable exceptionVariable) {
+        this.exceptionVariable = exceptionVariable;
     }
 }

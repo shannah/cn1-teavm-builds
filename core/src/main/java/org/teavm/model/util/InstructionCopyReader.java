@@ -21,13 +21,13 @@ import org.teavm.model.BasicBlock;
 import org.teavm.model.BasicBlockReader;
 import org.teavm.model.FieldReference;
 import org.teavm.model.Instruction;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.InvokeDynamicInstruction;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHandle;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
 import org.teavm.model.RuntimeConstant;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.model.Variable;
 import org.teavm.model.VariableReader;
@@ -82,7 +82,7 @@ import org.teavm.model.instructions.UnwrapArrayInstruction;
 public class InstructionCopyReader implements InstructionReader {
     private Instruction copy;
     private Program programCopy;
-    private InstructionLocation location;
+    private TextLocation location;
 
     public InstructionCopyReader(Program programCopy) {
         this.programCopy = programCopy;
@@ -97,7 +97,7 @@ public class InstructionCopyReader implements InstructionReader {
     }
 
     @Override
-    public void location(InstructionLocation location) {
+    public void location(TextLocation location) {
         this.location = location;
     }
 
@@ -386,8 +386,9 @@ public class InstructionCopyReader implements InstructionReader {
     }
 
     @Override
-    public void getElement(VariableReader receiver, VariableReader array, VariableReader index) {
-        GetElementInstruction insnCopy = new GetElementInstruction();
+    public void getElement(VariableReader receiver, VariableReader array, VariableReader index,
+            ArrayElementType type) {
+        GetElementInstruction insnCopy = new GetElementInstruction(type);
         insnCopy.setArray(copyVar(array));
         insnCopy.setReceiver(copyVar(receiver));
         insnCopy.setIndex(copyVar(index));
@@ -396,8 +397,8 @@ public class InstructionCopyReader implements InstructionReader {
     }
 
     @Override
-    public void putElement(VariableReader array, VariableReader index, VariableReader value) {
-        PutElementInstruction insnCopy = new PutElementInstruction();
+    public void putElement(VariableReader array, VariableReader index, VariableReader value, ArrayElementType type) {
+        PutElementInstruction insnCopy = new PutElementInstruction(type);
         insnCopy.setArray(copyVar(array));
         insnCopy.setValue(copyVar(value));
         insnCopy.setIndex(copyVar(index));

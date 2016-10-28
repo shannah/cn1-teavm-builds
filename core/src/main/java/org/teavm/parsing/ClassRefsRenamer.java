@@ -18,17 +18,13 @@ package org.teavm.parsing;
 import java.util.Arrays;
 import java.util.Map;
 import org.teavm.common.Mapper;
-import org.teavm.javascript.spi.Remove;
-import org.teavm.javascript.spi.Rename;
-import org.teavm.javascript.spi.Superclass;
+import org.teavm.interop.Remove;
+import org.teavm.interop.Rename;
+import org.teavm.interop.Superclass;
 import org.teavm.model.*;
 import org.teavm.model.instructions.*;
 import org.teavm.model.util.ModelUtils;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ClassRefsRenamer implements InstructionVisitor {
     private Mapper<String, String> classNameMapper;
 
@@ -49,6 +45,9 @@ public class ClassRefsRenamer implements InstructionVisitor {
             }
         }
         renamedCls.setParent(parent != null ? classNameMapper.map(parent) : null);
+        if (renamedCls.getName().equals(renamedCls.getParent())) {
+            renamedCls.setParent(null);
+        }
         for (MethodHolder method : cls.getMethods()) {
             if (method.getAnnotations().get(Remove.class.getName()) != null) {
                 continue;
