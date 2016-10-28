@@ -23,9 +23,9 @@ import org.teavm.classlib.java.nio.charset.TCharsetEncoder;
  *
  * @author Alexey Andreev
  */
-public class TUTF8Charset extends TCharset {
-    public TUTF8Charset() {
-        super("UTF-8", new String[0]);
+public class TLatin1Charset extends TCharset {
+    public TLatin1Charset() {
+        super("ISO-8859-1", new String[0]);
     }
 
     @Override
@@ -35,11 +35,11 @@ public class TUTF8Charset extends TCharset {
 
     @Override
     public TCharsetDecoder newDecoder() {
-        return new TUTF8Decoder(this);
+        return new TLatin1Decoder(this);
     }
 
     @Override
     public TCharsetEncoder newEncoder() {
-        return new TUTF8Encoder(this);
+        return new TLatin1Encoder(this);
     }
 }

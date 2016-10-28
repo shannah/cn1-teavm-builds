@@ -22,9 +22,9 @@ import org.teavm.classlib.java.nio.charset.TCoderResult;
  *
  * @author Alexey Andreev
  */
-public class TUTF8Encoder extends TBufferedEncoder {
-    TUTF8Encoder(TCharset cs) {
-        super(cs, 2, 4);
+public class TLatin1Encoder extends TBufferedEncoder {
+    TLatin1Encoder(TCharset cs) {
+        super(cs, 1, 1);
     }
 
     @Override
@@ -33,58 +33,7 @@ public class TUTF8Encoder extends TBufferedEncoder {
         TCoderResult result = null;
         while (inPos < inSize && outPos < outSize) {
             char ch = inArray[inPos++];
-            if (ch < 0x80) {
-                outArray[outPos++] = (byte) ch;
-            } else if (ch < 0x800) {
-                if (outPos + 2 > outSize) {
-                    --inPos;
-                    if (!controller.hasMoreOutput(2)) {
-                        result = TCoderResult.OVERFLOW;
-                    }
-                    break;
-                }
-                outArray[outPos++] = (byte) (0xC0 | (ch >> 6));
-                outArray[outPos++] = (byte) (0x80 | (ch & 0x3F));
-            } else if (!Character.isSurrogate(ch)) {
-                if (outPos + 3 > outSize) {
-                    --inPos;
-                    if (!controller.hasMoreOutput(3)) {
-                        result = TCoderResult.OVERFLOW;
-                    }
-                    break;
-                }
-                outArray[outPos++] = (byte) (0xE0 | (ch >> 12));
-                outArray[outPos++] = (byte) (0x80 | ((ch >> 6) & 0x3F));
-                outArray[outPos++] = (byte) (0x80 | (ch & 0x3F));
-            } else if (Character.isHighSurrogate(ch)) {
-                if (inPos >= inSize) {
-                    if (!controller.hasMoreInput()) {
-                        result = TCoderResult.UNDERFLOW;
-                    }
-                    break;
-                }
-                char low = inArray[inPos++];
-                if (!Character.isLowSurrogate(low)) {
-                    inPos -= 2;
-                    result = TCoderResult.malformedForLength(1);
-                    break;
-                }
-                if (outPos + 4 > outSize) {
-                    inPos -= 2;
-                    if (!controller.hasMoreOutput(4)) {
-                        result = TCoderResult.OVERFLOW;
-                    }
-                    break;
-                }
-                int codePoint = Character.toCodePoint(ch, low);
-                outArray[outPos++] = (byte) (0xF0 | (codePoint >> 18));
-                outArray[outPos++] = (byte) (0x80 | ((codePoint >> 12) & 0x3F));
-                outArray[outPos++] = (byte) (0x80 | ((codePoint >> 6) & 0x3F));
-                outArray[outPos++] = (byte) (0x80 | (codePoint & 0x3F));
-            } else {
-                result = TCoderResult.malformedForLength(1);
-                break;
-            }
+            outArray[outPos++] = ch > 0xFF ? (byte)'?' : (byte) ch;
         }
 
         controller.setInPosition(inPos);
