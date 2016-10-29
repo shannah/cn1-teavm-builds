@@ -18,6 +18,7 @@ package org.teavm.classlib.java.nio.charset;
 import java.util.*;
 import org.teavm.classlib.java.nio.TByteBuffer;
 import org.teavm.classlib.java.nio.TCharBuffer;
+import org.teavm.classlib.java.nio.charset.impl.TLatin1Charset;
 import org.teavm.classlib.java.nio.charset.impl.TUTF8Charset;
 
 /**
@@ -32,6 +33,7 @@ public abstract class TCharset implements Comparable<TCharset> {
 
     static {
         charsets.put("UTF-8", new TUTF8Charset());
+        charsets.put("ISO-8859-1", new TLatin1Charset());
     }
 
     protected TCharset(String canonicalName, String[] aliases) {

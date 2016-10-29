@@ -811,7 +811,11 @@ function Long_mul(a, b) {
 }
 function Long_div(a, b) {
     if (Math.abs(a.hi) < Long_MAX_NORMAL && Math.abs(b.hi) < Long_MAX_NORMAL) {
-        return Long_fromNumber(Long_toNumber(a) / Long_toNumber(b));
+        var numResult = Long_toNumber(a) / Long_toNumber(b);
+        if (Math.abs(numResult) < 1) {
+            return Long_ZERO;
+        }
+        return Long_fromNumber(numResult);
     }
     return Long_divRem(a, b)[0];
 }
