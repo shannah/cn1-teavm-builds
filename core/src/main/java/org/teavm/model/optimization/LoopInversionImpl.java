@@ -35,12 +35,12 @@ import org.teavm.common.LoopGraph;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.Incoming;
 import org.teavm.model.Instruction;
-import org.teavm.model.MethodReader;
+import org.teavm.model.MethodReference;
 import org.teavm.model.Phi;
 import org.teavm.model.Program;
 import org.teavm.model.TryCatchBlock;
-import org.teavm.model.TryCatchJoint;
 import org.teavm.model.Variable;
+import org.teavm.model.analysis.NullnessInformation;
 import org.teavm.model.util.BasicBlockMapper;
 import org.teavm.model.util.DefinitionExtractor;
 import org.teavm.model.util.InstructionCopyReader;
@@ -79,8 +79,8 @@ import org.teavm.model.util.UsageExtractor;
  * all remaining nodes are *condition*.
  */
 class LoopInversionImpl {
-    private final MethodReader method;
     private final Program program;
+    private final MethodReference method;
     private final int parameterCount;
     private Graph cfg;
     private DominatorTree dom;
@@ -89,9 +89,9 @@ class LoopInversionImpl {
     private BasicBlock[] definitionPlaces;
     private boolean affected;
 
-    LoopInversionImpl(MethodReader method, Program program, int parameterCount) {
-        this.method = method;
+    LoopInversionImpl(Program program, MethodReference method, int parameterCount) {
         this.program = program;
+        this.method = method;
         this.parameterCount = parameterCount;
         definitionPlaces = ProgramUtils.getVariableDefinitionPlaces(program);
     }
@@ -115,7 +115,6 @@ class LoopInversionImpl {
                         inputs[i] = program.variableAt(i);
                     }
                     new PhiUpdater().updatePhis(program, inputs);
-                    new UnusedVariableElimination().optimize(method, program);
                 }
             }
         } while (postponed);
@@ -152,14 +151,10 @@ class LoopInversionImpl {
     }
 
     private LoopWithExits getLoopWithExits(Map<Loop, LoopWithExits> cache, Loop loop) {
-        LoopWithExits result = cache.get(loop);
-        if (result == null) {
-            result = new LoopWithExits(loop.getHead(), loop.getParent() != null
-                    ? getLoopWithExits(cache, loop.getParent())
-                    : null);
-            cache.put(loop, result);
-        }
-        return result;
+        return cache.computeIfAbsent(loop, k -> {
+            LoopWithExits parent = loop.getParent() != null ? getLoopWithExits(cache, loop.getParent()) : null;
+            return new LoopWithExits(loop.getHead(), parent);
+        });
     }
 
     private void sortLoops(LoopWithExits loop, Set<LoopWithExits> visited, List<LoopWithExits> target) {
@@ -179,7 +174,6 @@ class LoopInversionImpl {
         final IntSet nodesAndCopies = new IntOpenHashSet();
         final IntSet exits = new IntOpenHashSet();
         int bodyStart;
-        int copyStart;
         int headCopy;
         final IntIntMap copiedNodes = new IntIntOpenHashMap();
         boolean shouldSkip;
@@ -210,7 +204,10 @@ class LoopInversionImpl {
             }
 
             IntSet nodesToCopy = nodesToCopy();
-            if (!isInversionProfitable(nodesToCopy)) {
+            NullnessInformation nullness = NullnessInformation.build(program, method.getDescriptor());
+            boolean profitable = isInversionProfitable(nodesToCopy, nullness);
+            nullness.dispose();
+            if (!profitable) {
                 return false;
             }
             copyBasicBlocks(nodesToCopy);
@@ -224,17 +221,17 @@ class LoopInversionImpl {
             return true;
         }
 
-        private boolean isInversionProfitable(IntSet nodesToCopy) {
+        private boolean isInversionProfitable(IntSet nodesToCopy, NullnessInformation nullness) {
             UsageExtractor useExtractor = new UsageExtractor();
             DefinitionExtractor defExtractor = new DefinitionExtractor();
-            LoopInvariantAnalyzer invariantAnalyzer = new LoopInvariantAnalyzer();
+            LoopInvariantAnalyzer invariantAnalyzer = new LoopInvariantAnalyzer(nullness);
             for (int node : nodes.toArray()) {
                 if (nodesToCopy.contains(node)) {
                     continue;
                 }
                 BasicBlock block = program.basicBlockAt(node);
                 Set<Variable> currentInvariants = new HashSet<>();
-                for (Instruction insn : block.getInstructions()) {
+                for (Instruction insn : block) {
                     invariantAnalyzer.reset();
                     insn.acceptVisitor(invariantAnalyzer);
                     if (!invariantAnalyzer.canMove && !invariantAnalyzer.constant) {
@@ -311,7 +308,7 @@ class LoopInversionImpl {
         }
 
         private void copyCondition() {
-            BasicBlockMapper blockMapper = new BasicBlockMapper(block -> copiedNodes.getOrDefault(block, block));
+            BasicBlockMapper blockMapper = new BasicBlockMapper((int block) -> copiedNodes.getOrDefault(block, block));
 
             InstructionCopyReader copier = new InstructionCopyReader(program);
             for (int node : copiedNodes.keys().toArray()) {
@@ -321,11 +318,11 @@ class LoopInversionImpl {
                 targetBlock.setExceptionVariable(sourceBlock.getExceptionVariable());
 
                 copier.resetLocation();
-                for (int i = 0; i < sourceBlock.instructionCount(); ++i) {
-                    sourceBlock.readInstruction(i, copier);
-                    Instruction insn = copier.getCopy();
+                List<Instruction> instructionCopies = ProgramUtils.copyInstructions(sourceBlock.getFirstInstruction(),
+                        null, targetBlock.getProgram());
+                for (Instruction insn : instructionCopies) {
                     insn.acceptVisitor(blockMapper);
-                    targetBlock.getInstructions().add(insn);
+                    targetBlock.add(insn);
                 }
 
                 for (Phi phi : sourceBlock.getPhis()) {
@@ -347,13 +344,6 @@ class LoopInversionImpl {
                     tryCatchCopy.setExceptionType(tryCatch.getExceptionType());
                     tryCatchCopy.setHandler(program.basicBlockAt(copiedNodes.getOrDefault(handler, handler)));
                     targetBlock.getTryCatchBlocks().add(tryCatchCopy);
-
-                    for (TryCatchJoint joint : tryCatch.getJoints()) {
-                        TryCatchJoint jointCopy = new TryCatchJoint();
-                        jointCopy.setReceiver(joint.getReceiver());
-                        jointCopy.getSourceVariables().addAll(joint.getSourceVariables());
-                        tryCatchCopy.getJoints().add(joint);
-                    }
                 }
             }
 
@@ -380,7 +370,7 @@ class LoopInversionImpl {
          * Back edges from body are not back edges anymore, instead they point to a copied condition.
          */
         private void moveBackEdges() {
-            BasicBlockMapper mapper = new BasicBlockMapper(block -> block == head ? headCopy : block);
+            BasicBlockMapper mapper = new BasicBlockMapper((int block) -> block == head ? headCopy : block);
 
             for (int node : nodes.toArray()) {
                 BasicBlock block = program.basicBlockAt(node);

@@ -16,14 +16,13 @@
 package org.teavm.model.optimization;
 
 import org.teavm.model.BasicBlock;
-import org.teavm.model.MethodReader;
 import org.teavm.model.Program;
 import org.teavm.model.instructions.JumpInstruction;
 import org.teavm.model.util.BasicBlockMapper;
 
 public class EmptyBlockElimination implements MethodOptimization {
     @Override
-    public boolean optimize(MethodReader method, final Program program) {
+    public boolean optimize(MethodOptimizationContext context, final Program program) {
         boolean affected = true;
         final int[] blockMapping = new int[program.basicBlockCount()];
         for (int i = 0; i < blockMapping.length; ++i) {
@@ -32,7 +31,7 @@ public class EmptyBlockElimination implements MethodOptimization {
         int lastNonEmpty = program.basicBlockCount() - 1;
         for (int i = program.basicBlockCount() - 2; i > 0; --i) {
             BasicBlock block = program.basicBlockAt(i);
-            if (block.getPhis().isEmpty() && block.getInstructions().size() == 1
+            if (block.getPhis().isEmpty() && block.instructionCount() == 1
                     && block.getLastInstruction() instanceof JumpInstruction) {
                 JumpInstruction insn = (JumpInstruction) block.getLastInstruction();
                 if (insn.getTarget().getIndex() == i + 1) {
@@ -41,7 +40,7 @@ public class EmptyBlockElimination implements MethodOptimization {
             }
             lastNonEmpty = blockMapping[i];
         }
-        new BasicBlockMapper(block -> blockMapping[block]).transform(program);
+        new BasicBlockMapper((int block) -> blockMapping[block]).transform(program);
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             if (blockMapping[i] != i) {
                 program.deleteBasicBlock(i);

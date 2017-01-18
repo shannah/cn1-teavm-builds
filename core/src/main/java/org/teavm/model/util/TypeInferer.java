@@ -28,7 +28,7 @@ public class TypeInferer {
     GraphBuilder arrayElemBuilder;
 
     public void inferTypes(ProgramReader program, MethodReference method) {
-        int sz = Math.max(method.parameterCount(), program.variableCount());
+        int sz = program.variableCount();
         types = new VariableType[sz];
 
         types[0] = VariableType.OBJECT;
@@ -50,14 +50,6 @@ public class TypeInferer {
             for (PhiReader phi : block.readPhis()) {
                 for (IncomingReader incoming : phi.readIncomings()) {
                     builder.addEdge(incoming.getValue().getIndex(), phi.getReceiver().getIndex());
-                }
-            }
-
-            for (TryCatchBlockReader tryCatch : block.readTryCatchBlocks()) {
-                for (TryCatchJointReader joint : tryCatch.readJoints()) {
-                    for (VariableReader sourceVar : joint.readSourceVariables()) {
-                        builder.addEdge(sourceVar.getIndex(), joint.getReceiver().getIndex());
-                    }
                 }
             }
         }

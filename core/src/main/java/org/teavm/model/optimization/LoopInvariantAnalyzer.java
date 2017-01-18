@@ -16,6 +16,7 @@
 package org.teavm.model.optimization;
 
 import org.teavm.model.InvokeDynamicInstruction;
+import org.teavm.model.analysis.NullnessInformation;
 import org.teavm.model.instructions.ArrayLengthInstruction;
 import org.teavm.model.instructions.AssignInstruction;
 import org.teavm.model.instructions.BinaryBranchingInstruction;
@@ -57,9 +58,14 @@ import org.teavm.model.instructions.SwitchInstruction;
 import org.teavm.model.instructions.UnwrapArrayInstruction;
 
 public class LoopInvariantAnalyzer implements InstructionVisitor {
+    private NullnessInformation nullness;
     public boolean canMove;
     public boolean constant;
     public boolean sideEffect;
+
+    public LoopInvariantAnalyzer(NullnessInformation nullness) {
+        this.nullness = nullness;
+    }
 
     public void reset() {
         canMove = false;
@@ -187,7 +193,9 @@ public class LoopInvariantAnalyzer implements InstructionVisitor {
     @Override
     public void visit(ArrayLengthInstruction insn) {
         canMove = true;
-        sideEffect = true;
+        if (!nullness.isNotNull(insn.getArray())) {
+            sideEffect = true;
+        }
     }
 
     @Override
@@ -197,7 +205,9 @@ public class LoopInvariantAnalyzer implements InstructionVisitor {
     @Override
     public void visit(UnwrapArrayInstruction insn) {
         canMove = true;
-        sideEffect = true;
+        if (!nullness.isNotNull(insn.getArray())) {
+            sideEffect = true;
+        }
     }
 
     @Override
@@ -228,16 +238,16 @@ public class LoopInvariantAnalyzer implements InstructionVisitor {
     @Override
     public void visit(NullCheckInstruction insn) {
         canMove = true;
-        sideEffect = true;
+        if (!nullness.isNotNull(insn.getValue())) {
+            sideEffect = true;
+        }
     }
 
     @Override
     public void visit(MonitorEnterInstruction insn) {
-
     }
 
     @Override
     public void visit(MonitorExitInstruction insn) {
-
     }
 }

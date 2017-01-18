@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -42,6 +43,9 @@ import java.util.stream.Stream;
 import org.apache.commons.io.IOUtils;
 import org.junit.runner.Description;
 import org.junit.runner.Runner;
+import org.junit.runner.manipulation.Filter;
+import org.junit.runner.manipulation.Filterable;
+import org.junit.runner.manipulation.NoTestsRemainException;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.model.InitializationError;
@@ -64,7 +68,7 @@ import org.teavm.vm.DirectoryBuildTarget;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
 
-public class TeaVMTestRunner extends Runner {
+public class TeaVMTestRunner extends Runner implements Filterable {
     private static final String PATH_PARAM = "teavm.junit.target";
     private static final String RUNNER = "teavm.junit.js.runner";
     private static final String THREAD_COUNT = "teavm.junit.js.threads";
@@ -83,6 +87,7 @@ public class TeaVMTestRunner extends Runner {
     private static ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     private static volatile ScheduledFuture<?> cleanupFuture;
     private CountDownLatch latch;
+    private List<Method> filteredChildren;
 
     static {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -129,7 +134,7 @@ public class TeaVMTestRunner extends Runner {
     public Description getDescription() {
         if (suiteDescription == null) {
             suiteDescription = Description.createSuiteDescription(testClass);
-            for (Method child : getChildren()) {
+            for (Method child : getFilteredChildren()) {
                 suiteDescription.getChildren().add(describeChild(child));
             }
         }
@@ -138,7 +143,7 @@ public class TeaVMTestRunner extends Runner {
 
     @Override
     public void run(RunNotifier notifier) {
-        List<Method> children = getChildren();
+        List<Method> children = getFilteredChildren();
         latch = new CountDownLatch(children.size());
 
         notifier.fireTestStarted(getDescription());
@@ -169,6 +174,13 @@ public class TeaVMTestRunner extends Runner {
         return children;
     }
 
+    private List<Method> getFilteredChildren() {
+        if (filteredChildren == null) {
+            filteredChildren = getChildren();
+        }
+        return filteredChildren;
+    }
+
     private Description describeChild(Method child) {
         return descriptions.computeIfAbsent(child, method -> Description.createTestDescription(testClass,
                 method.getName()));
@@ -177,7 +189,7 @@ public class TeaVMTestRunner extends Runner {
     private void runChild(Method child, RunNotifier notifier) {
         notifier.fireTestStarted(describeChild(child));
 
-        boolean run = false;
+        boolean ran = false;
         boolean success = true;
 
         MethodHolder methodHolder = classHolder.getMethod(getDescriptor(child));
@@ -195,31 +207,50 @@ public class TeaVMTestRunner extends Runner {
 
         if (!child.isAnnotationPresent(SkipJVM.class)
                 && !child.getDeclaringClass().isAnnotationPresent(SkipJVM.class)) {
-            run = true;
+            ran = true;
             success = runInJvm(child, notifier, expectedExceptions);
         }
 
+        Description description = describeChild(child);
         if (success && outputDir != null) {
-            Description description = describeChild(child);
             List<TeaVMTestConfiguration> configurations = getConfigurations();
             int[] configurationIndex = new int[] { 0 };
             List<Consumer<Boolean>> onSuccess = new ArrayList<>();
 
+            List<TestRun> runs = new ArrayList<>();
             onSuccess.add(runSuccess -> {
-                if (runSuccess && configurationIndex[0] < configurations.size()) {
-                    runInTeaVM(child, notifier, expectedExceptions, configurations.get(configurationIndex[0]++),
-                            onSuccess.get(0));
+                if (runSuccess && configurationIndex[0] < runs.size()) {
+                    submitRun(runs.get(configurationIndex[0]++));
                 } else {
                     notifier.fireTestFinished(description);
                     latch.countDown();
                 }
             });
+
+            for (TeaVMTestConfiguration configuration : configurations) {
+                try {
+                    TestRun run = compileByTeaVM(child, notifier, expectedExceptions, configuration, onSuccess.get(0));
+                    if (run != null) {
+                        runs.add(run);
+                    } else {
+                        notifier.fireTestFinished(description);
+                        latch.countDown();
+                        return;
+                    }
+                } catch (Throwable e) {
+                    notifier.fireTestFailure(new Failure(description, e));
+                    notifier.fireTestFinished(description);
+                    latch.countDown();
+                    return;
+                }
+            }
+
             onSuccess.get(0).accept(true);
         } else {
-            if (!run) {
-                notifier.fireTestIgnored(describeChild(child));
+            if (!ran) {
+                notifier.fireTestIgnored(description);
             }
-            notifier.fireTestFinished(describeChild(child));
+            notifier.fireTestFinished(description);
             latch.countDown();
         }
     }
@@ -262,7 +293,7 @@ public class TeaVMTestRunner extends Runner {
         return true;
     }
 
-    private boolean runInTeaVM(Method child, RunNotifier notifier, Set<Class<?>> expectedExceptions,
+    private TestRun compileByTeaVM(Method child, RunNotifier notifier, Set<Class<?>> expectedExceptions,
             TeaVMTestConfiguration configuration, Consumer<Boolean> onComplete) {
         Description description = describeChild(child);
 
@@ -271,20 +302,17 @@ public class TeaVMTestRunner extends Runner {
             compileResult = compileTest(child, configuration);
         } catch (Exception e) {
             notifier.fireTestFailure(new Failure(description, e));
-            onComplete.accept(false);
-            return false;
+            return null;
         }
 
         if (!compileResult.success) {
             notifier.fireTestFailure(new Failure(description,
                     new AssertionError(compileResult.errorMessage)));
-            onComplete.accept(false);
-            return false;
+            return null;
         }
 
         if (runStrategy == null) {
-            onComplete.accept(true);
-            return true;
+            return null;
         }
 
         TestRunCallback callback = new TestRunCallback() {
@@ -300,11 +328,9 @@ public class TeaVMTestRunner extends Runner {
             }
         };
 
-        TestRun run = new TestRun(compileResult.file.getParentFile(), child,
+        return new TestRun(compileResult.file.getParentFile(), child,
                 new MethodReference(testClass.getName(), getDescriptor(child)),
                 description, callback, expectedExceptions);
-        submitRun(run);
-        return true;
     }
 
     private void submitRun(TestRun run) {
@@ -453,6 +479,18 @@ public class TeaVMTestRunner extends Runner {
     private static ClassHolderSource getClassSource(ClassLoader classLoader) {
         return classSources.computeIfAbsent(classLoader, cl -> new PreOptimizingClassHolderSource(
                 new ClasspathClassHolderSource(classLoader)));
+    }
+
+    @Override
+    public void filter(Filter filter) throws NoTestsRemainException {
+        for (Iterator<Method> iterator = getFilteredChildren().iterator(); iterator.hasNext();) {
+            Method method = iterator.next();
+            if (filter.shouldRun(describeChild(method))) {
+                filter.apply(method);
+            } else {
+                iterator.remove();
+            }
+        }
     }
 
     static class CompileResult {

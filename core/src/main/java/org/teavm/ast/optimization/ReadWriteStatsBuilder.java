@@ -59,7 +59,7 @@ class ReadWriteStatsBuilder {
                 reads[block.getExceptionVariable().getIndex()]++;
             }
 
-            for (Instruction insn : block.getInstructions()) {
+            for (Instruction insn : block) {
                 insn.acceptVisitor(defExtractor);
                 insn.acceptVisitor(useExtractor);
                 for (Variable var : defExtractor.getDefinedVariables()) {
@@ -75,14 +75,6 @@ class ReadWriteStatsBuilder {
                 for (Incoming incoming : phi.getIncomings()) {
                     if (writes[incoming.getValue().getIndex()] == 0) {
                         reads[incoming.getValue().getIndex()]++;
-                    }
-                }
-            }
-            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
-                for (TryCatchJoint joint : tryCatch.getJoints()) {
-                    writes[joint.getReceiver().getIndex()] += joint.getSourceVariables().size();
-                    for (Variable var : joint.getSourceVariables()) {
-                        reads[var.getIndex()]++;
                     }
                 }
             }

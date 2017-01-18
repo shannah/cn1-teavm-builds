@@ -16,23 +16,51 @@
 package org.teavm.idea.jps.model;
 
 import com.intellij.util.xmlb.XmlSerializer;
-import java.util.Objects;
+import java.util.Arrays;
+import java.util.List;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.model.JpsElement;
+import org.jetbrains.jps.model.JpsElementChildRole;
 import org.jetbrains.jps.model.module.JpsModule;
 import org.jetbrains.jps.model.serialization.JpsModelSerializerExtension;
+import org.jetbrains.jps.model.serialization.facet.JpsFacetConfigurationSerializer;
+import org.teavm.tooling.TeaVMTargetType;
 
 public class TeaVMModelSerializerService extends JpsModelSerializerExtension {
+    @NotNull
     @Override
-    public void loadModuleOptions(@NotNull JpsModule module, @NotNull Element rootElement) {
-        rootElement.getChildren("component").stream()
-                .filter(child -> Objects.equals(child.getAttributeValue("name"), "teavm"))
-                .forEach(child -> readConfig(module, child));
+    public List<? extends JpsFacetConfigurationSerializer<?>> getFacetConfigurationSerializers() {
+        return Arrays.asList(jsSerializer, wasmSerializer);
     }
 
-    private void readConfig(@NotNull JpsModule module, @NotNull Element element) {
-        TeaVMJpsConfiguration config = XmlSerializer.deserialize(element, TeaVMJpsConfiguration.class);
-        assert config != null;
-        config.setTo(module);
+    private TeaVMFacetSerializer jsSerializer = new TeaVMFacetSerializer(TeaVMJpsConfiguration.JS_ROLE,
+            "teavm-js", "TeaVM (JS)", TeaVMTargetType.JAVASCRIPT);
+
+    private TeaVMFacetSerializer wasmSerializer = new TeaVMFacetSerializer(TeaVMJpsConfiguration.WEBASSEMBLY_ROLE,
+            "teavm-wasm", "TeaVM (WebAssembly)", TeaVMTargetType.WEBASSEMBLY);
+
+    private class TeaVMFacetSerializer
+            extends JpsFacetConfigurationSerializer<TeaVMJpsConfiguration> {
+        private TeaVMTargetType targetType;
+
+        public TeaVMFacetSerializer(JpsElementChildRole<TeaVMJpsConfiguration> role, String facetTypeId,
+                @Nullable String facetName, TeaVMTargetType targetType) {
+            super(role, facetTypeId, facetName);
+            this.targetType = targetType;
+        }
+
+        @Override
+        protected TeaVMJpsConfiguration loadExtension(@NotNull Element element, String s, JpsElement jpsElement,
+                JpsModule jpsModule) {
+            TeaVMJpsConfiguration configuration = XmlSerializer.deserialize(element, TeaVMJpsConfiguration.class);
+            configuration.setTargetType(targetType);
+            return configuration;
+        }
+
+        @Override
+        protected void saveExtension(TeaVMJpsConfiguration configuration, Element element, JpsModule jpsModule) {
+        }
     }
 }

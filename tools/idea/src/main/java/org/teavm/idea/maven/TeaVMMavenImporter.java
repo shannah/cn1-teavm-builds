@@ -15,12 +15,15 @@
  */
 package org.teavm.idea.maven;
 
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.facet.FacetManager;
+import com.intellij.facet.FacetType;
+import com.intellij.facet.ModifiableFacetModel;
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleServiceManager;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.jdom.Element;
 import org.jetbrains.idea.maven.importing.MavenImporter;
 import org.jetbrains.idea.maven.importing.MavenRootModelAdapter;
@@ -29,12 +32,14 @@ import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectChanges;
 import org.jetbrains.idea.maven.project.MavenProjectsProcessorTask;
 import org.jetbrains.idea.maven.project.MavenProjectsTree;
-import org.teavm.idea.TeaVMConfigurationStorage;
+import org.teavm.idea.TeaVMFacet;
+import org.teavm.idea.TeaVMFacetConfiguration;
+import org.teavm.idea.TeaVMFacetType;
+import org.teavm.idea.TeaVMWebAssemblyFacetType;
 import org.teavm.idea.jps.model.TeaVMJpsConfiguration;
+import org.teavm.tooling.TeaVMTargetType;
 
 public class TeaVMMavenImporter extends MavenImporter {
-    private static final Logger logger = Logger.getInstance(TeaVMMavenImporter.class);
-
     public TeaVMMavenImporter() {
         super("org.teavm", "teavm-maven-plugin");
     }
@@ -49,41 +54,59 @@ public class TeaVMMavenImporter extends MavenImporter {
             MavenRootModelAdapter rootModel, MavenProjectsTree mavenModel, MavenProject mavenProject,
             MavenProjectChanges changes, Map<MavenProject, String> mavenProjectToModuleName,
             List<MavenProjectsProcessorTask> postTasks) {
-        TeaVMConfigurationStorage configurationStorage = ModuleServiceManager.getService(module,
-                TeaVMConfigurationStorage.class);
-        if (configurationStorage == null) {
-            logger.warn("Could not load component to retrieve TeaVM build configuration");
-            return;
-        }
-
-        TeaVMJpsConfiguration configuration = configurationStorage.getState();
-
+        FacetManager facetManager = FacetManager.getInstance(module);
+        ModifiableFacetModel facetModel = modifiableModelsProvider.getModifiableFacetModel(module);
+        Set<String> targetTypes = new HashSet<>();
         for (MavenPlugin mavenPlugin : mavenProject.getPlugins()) {
             if (mavenPlugin.getGroupId().equals(myPluginGroupID)
                     && mavenPlugin.getArtifactId().equals(myPluginArtifactID)) {
-                updateConfiguration(mavenPlugin, configuration);
+                updateConfiguration(mavenPlugin, facetModel, facetManager, targetTypes);
             }
         }
-
-        configurationStorage.loadState(configuration);
     }
 
-    private void updateConfiguration(MavenPlugin plugin, TeaVMJpsConfiguration configuration) {
+    private void updateConfiguration(MavenPlugin plugin, ModifiableFacetModel facetModel, FacetManager facetManager,
+            Set<String> targetTypes) {
         if (plugin.getConfigurationElement() != null) {
-            updateConfiguration(plugin.getConfigurationElement(), configuration);
+            updateConfiguration(plugin.getConfigurationElement(), facetModel, facetManager, targetTypes);
         }
+
         for (MavenPlugin.Execution execution : plugin.getExecutions()) {
             if (execution.getGoals().contains("compile")) {
                 if (execution.getConfigurationElement() != null) {
-                    updateConfiguration(execution.getConfigurationElement(), configuration);
+                    updateConfiguration(execution.getConfigurationElement(), facetModel, facetManager, targetTypes);
                 }
-                break;
             }
         }
     }
 
-    private void updateConfiguration(Element source, TeaVMJpsConfiguration configuration) {
-        configuration.setEnabled(true);
+    private void updateConfiguration(Element source, ModifiableFacetModel facetModel, FacetManager facetManager,
+            Set<String> targetTypes) {
+        FacetType<TeaVMFacet, TeaVMFacetConfiguration> facetType;
+        switch (getTargetType(source)) {
+            case JAVASCRIPT:
+                facetType = TeaVMFacetType.getInstance();
+                break;
+            case WEBASSEMBLY:
+                facetType = TeaVMWebAssemblyFacetType.getInstance();
+                break;
+            default:
+                return;
+        }
+
+        if (!targetTypes.add(facetType.getStringId())) {
+            return;
+        }
+
+        TeaVMFacet facet = facetManager.getFacetByType(facetType.getId());
+
+        if (facet == null) {
+            facet = facetManager.createFacet(facetType, facetType.getDefaultFacetName(), null);
+            facetModel.addFacet(facet);
+        }
+
+        TeaVMJpsConfiguration configuration = facet.getConfiguration().getState();
+
         for (Element child : source.getChildren()) {
             switch (child.getName()) {
                 case "sourceFilesCopied":
@@ -103,5 +126,20 @@ public class TeaVMMavenImporter extends MavenImporter {
                     break;
             }
         }
+
+        facet.getConfiguration().loadState(configuration);
+    }
+
+    private TeaVMTargetType getTargetType(Element source) {
+        for (Element child : source.getChildren()) {
+            if (child.getName().equals("targetType")) {
+                try {
+                    return TeaVMTargetType.valueOf(child.getTextTrim());
+                } catch (IllegalArgumentException e) {
+                    // do nothing, continue iterating
+                }
+            }
+        }
+        return TeaVMTargetType.JAVASCRIPT;
     }
 }

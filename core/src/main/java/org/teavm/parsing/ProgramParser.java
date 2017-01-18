@@ -98,7 +98,7 @@ public class ProgramParser {
         getBasicBlock(0);
         JumpInstruction insn = new JumpInstruction();
         insn.setTarget(program.basicBlockAt(1));
-        program.basicBlockAt(0).getInstructions().add(insn);
+        program.basicBlockAt(0).add(insn);
         doAnalyze(method);
         assemble(method);
         for (int i = 0; i < program.basicBlockCount(); ++i) {
@@ -185,12 +185,7 @@ public class ProgramParser {
         }
         for (LocalVariableNode localVar : method.localVariables) {
             int location = labelIndexes.get(localVar.start.getLabel());
-            List<LocalVariableNode> vars = localVariableMap.get(location);
-            if (vars == null) {
-                vars = new ArrayList<>();
-                localVariableMap.put(location, vars);
-            }
-            vars.add(localVar);
+            localVariableMap.computeIfAbsent(location, k -> new ArrayList<>()).add(localVar);
         }
         targetInstructions = new ArrayList<>(instructions.size());
         targetInstructions.addAll(Collections.nCopies(instructions.size(), null));
@@ -276,12 +271,12 @@ public class ProgramParser {
                 if (basicBlock != null && !hasProperLastInstruction(basicBlock)) {
                     JumpInstruction insn = new JumpInstruction();
                     insn.setTarget(newBasicBlock);
-                    basicBlock.getInstructions().add(insn);
+                    basicBlock.add(insn);
                 }
                 basicBlock = newBasicBlock;
-                if (!basicBlock.getInstructions().isEmpty()) {
+                if (basicBlock.instructionCount() > 0) {
                     Map<Integer, String> debugNames = new HashMap<>(accumulatedDebugNames);
-                    variableDebugNames.put(basicBlock.getInstructions().get(0), debugNames);
+                    variableDebugNames.put(basicBlock.getFirstInstruction(), debugNames);
                 }
             }
             List<Instruction> builtInstructions = targetInstructions.get(i);
@@ -310,7 +305,7 @@ public class ProgramParser {
                 for (Instruction insn : builtInstructions) {
                     insn.setLocation(lastLocation);
                 }
-                basicBlock.getInstructions().addAll(builtInstructions);
+                basicBlock.addAll(builtInstructions);
             }
         }
     }
@@ -1004,7 +999,7 @@ public class ProgramParser {
                 }
                 case Opcodes.CALOAD: {
                     loadArrayElement(1, ArrayElementType.CHAR);
-                    CastIntegerInstruction insn = new CastIntegerInstruction(IntegerSubtype.CHARACTER,
+                    CastIntegerInstruction insn = new CastIntegerInstruction(IntegerSubtype.CHAR,
                             CastIntegerDirection.TO_INTEGER);
                     insn.setValue(getVariable(popSingle()));
                     insn.setReceiver(getVariable(pushSingle()));
@@ -1492,7 +1487,7 @@ public class ProgramParser {
                     break;
                 }
                 case Opcodes.I2C: {
-                    CastIntegerInstruction insn = new CastIntegerInstruction(IntegerSubtype.CHARACTER,
+                    CastIntegerInstruction insn = new CastIntegerInstruction(IntegerSubtype.CHAR,
                             CastIntegerDirection.FROM_INTEGER);
                     insn.setValue(getVariable(popSingle()));
                     insn.setReceiver(getVariable(pushSingle()));
@@ -1700,15 +1695,11 @@ public class ProgramParser {
                     break;
                 }
                 case Opcodes.PUTSTATIC: {
-                    if (!owner.equals(currentClassName)) {
-                        InitClassInstruction initInsn = new InitClassInstruction();
-                        initInsn.setClassName(ownerCls);
-                        addInstruction(initInsn);
-                    }
                     int value = desc.equals("D") || desc.equals("J") ? popDouble() : popSingle();
                     PutFieldInstruction insn = new PutFieldInstruction();
                     insn.setField(referenceCache.getCached(new FieldReference(ownerCls, name)));
                     insn.setValue(getVariable(value));
+                    insn.setFieldType(referenceCache.parseValueTypeCached(desc));
                     addInstruction(insn);
                     break;
                 }

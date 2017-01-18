@@ -18,6 +18,8 @@ package org.teavm.vm;
 import static org.junit.Assert.*;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.jso.JSBody;
+import org.teavm.junit.SkipJVM;
 import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
@@ -103,6 +105,86 @@ public class VMTest {
             assertEquals(RuntimeException.class, e.getClass());
             assertEquals(n, 22);
         }
+    }
+
+    @Test
+    public void inlineThrow() {
+        int x = id(23);
+        if (x == 42) {
+            x++;
+            throwException();
+            x++;
+        }
+        assertEquals(x, id(23));
+    }
+
+    @Test
+    public void asyncClinit() {
+        assertEquals(0, initCount);
+        assertEquals("foo", AsyncClinitClass.foo());
+        assertEquals(1, initCount);
+        assertEquals("ok", AsyncClinitClass.state);
+        assertEquals("bar", AsyncClinitClass.bar());
+        assertEquals(1, initCount);
+        assertEquals("ok", AsyncClinitClass.state);
+    }
+
+    @Test
+    public void asyncClinitField() {
+        assertEquals("ok", AsyncClinitClass.state);
+    }
+
+    @Test
+    @SkipJVM
+    public void loopAndExceptionPhi() {
+        int[] a = createArray();
+        int s = 0;
+        for (int i = 0; i < 10; ++i) {
+            int x = 0;
+            try {
+                x += 2;
+                x += 3;
+            } catch (RuntimeException e) {
+                fail("Unexpected exception caught: " + x);
+            }
+            s += a[0] + a[1];
+        }
+        assertEquals(30, s);
+    }
+
+    @JSBody(params = {}, script = "return [1, 2]")
+    private static native int[] createArray();
+
+    static int initCount = 0;
+
+    private static class AsyncClinitClass {
+        static String state = "";
+
+        static {
+            initCount++;
+            try {
+                Thread.sleep(1);
+                state += "ok";
+            } catch (InterruptedException e) {
+                state += "error";
+            }
+        }
+
+        public static String foo() {
+            return "foo";
+        }
+
+        public static String bar() {
+            return "bar";
+        }
+    }
+
+    private void throwException() {
+        throw new RuntimeException();
+    }
+
+    private int id(int value) {
+        return value;
     }
 
     private static class ClassWithStaticField {
