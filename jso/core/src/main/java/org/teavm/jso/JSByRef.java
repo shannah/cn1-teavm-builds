@@ -1,5 +1,5 @@
 /*
- *  Copyright 2015 Alexey Andreev.
+ *  Copyright 2017 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,14 +13,19 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.jso.browser;
+package org.teavm.jso;
 
-import org.teavm.jso.JSBody;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-public final class Navigator {
-    private Navigator() {
-    }
-
-    @JSBody(script = "return window.navigator.onLine;")
-    public static native boolean isOnline();
+/**
+ * <p>Marks parameters of JavaScript methods that should be passed by reference.
+ * This annotation is only applicable to parameters of array type. More specifically:
+ * to: byte[], short[], char[], int[], float[], double[] or T[], where T is JSObject.</p>
+ */
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.PARAMETER)
+public @interface JSByRef {
 }
