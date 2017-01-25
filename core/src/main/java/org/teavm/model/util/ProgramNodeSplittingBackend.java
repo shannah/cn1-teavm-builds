@@ -21,10 +21,6 @@ import org.teavm.common.GraphSplittingBackend;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.Program;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ProgramNodeSplittingBackend implements GraphSplittingBackend {
     private Program program;
 
@@ -40,20 +36,19 @@ public class ProgramNodeSplittingBackend implements GraphSplittingBackend {
             int node = nodes[i];
             BasicBlock block = program.basicBlockAt(node);
             BasicBlock blockCopy = program.createBasicBlock();
-            blockCopy.getInstructions().addAll(ProgramUtils.copyInstructions(block, 0,
-                    block.getInstructions().size(), program));
+            ProgramUtils.copyBasicBlock(block, blockCopy);
             copies[i] = blockCopy.getIndex();
             map.put(nodes[i], copies[i] + 1);
         }
-        BasicBlockMapper copyBlockMapper = new BasicBlockMapper(block -> {
+        BasicBlockMapper copyBlockMapper = new BasicBlockMapper((int block) -> {
             int mappedIndex = map.get(block);
             return mappedIndex == 0 ? block : mappedIndex - 1;
         });
-        for (int i = 0; i < copies.length; ++i) {
-            copyBlockMapper.transform(program.basicBlockAt(copies[i]));
+        for (int copy : copies) {
+            copyBlockMapper.transform(program.basicBlockAt(copy));
         }
-        for (int i = 0; i < domain.length; ++i) {
-            copyBlockMapper.transform(program.basicBlockAt(domain[i]));
+        for (int domainNode : domain) {
+            copyBlockMapper.transform(program.basicBlockAt(domainNode));
         }
         return copies;
     }

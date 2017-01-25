@@ -182,7 +182,7 @@ public class Renderer implements RenderingManager {
     private void renderRuntimeString() throws IOException {
         MethodReference stringCons = new MethodReference(String.class, "<init>", char[].class, void.class);
         writer.append("function $rt_str(str) {").indent().softNewLine();
-        writer.append("if (str===null){").indent().softNewLine();
+        writer.append("if (str == null) {").indent().softNewLine();
         writer.append("return null;").softNewLine();
         writer.outdent().append("}").softNewLine();
         writer.append("var characters = $rt_createCharArray(str.length);").softNewLine();
@@ -348,35 +348,14 @@ public class Renderer implements RenderingManager {
     private void renderMethodBodies(ClassNode cls) throws RenderingException {
         debugEmitter.emitClass(cls.getName());
         try {
-            List<MethodNode> nonInitMethods = new ArrayList<>();
             MethodReader clinit = classSource.get(cls.getName()).getMethod(
                     new MethodDescriptor("<clinit>", ValueType.VOID));
-            boolean needsClinit = clinit != null;
-            List<MethodNode> clinitMethods = new ArrayList<>();
-            for (MethodNode method : cls.getMethods()) {
-                if (needsClinit && (method.getModifiers().contains(ElementModifier.STATIC)
-                        || method.getReference().getName().equals("<init>"))) {
-                    clinitMethods.add(method);
-                } else {
-                    nonInitMethods.add(method);
-                }
-            }
 
-            if (needsClinit) {
-                writer.append("function ").appendClass(cls.getName()).append("_$callClinit()").ws()
-                        .append("{").softNewLine().indent();
-                writer.appendClass(cls.getName()).append("_$callClinit").ws().append("=").ws()
-                        .append("function(){};").newLine();
-                for (MethodNode method : clinitMethods) {
-                    renderBody(method, true);
-                }
-                writer.appendMethodBody(new MethodReference(cls.getName(), clinit.getDescriptor()))
-                        .append("();").softNewLine();
-                writer.outdent().append("}").newLine();
+            if (clinit != null) {
+                renderCallClinit(clinit, cls);
             }
             if (!cls.getModifiers().contains(ElementModifier.INTERFACE)) {
                 for (MethodNode method : cls.getMethods()) {
-                    cls.getMethods();
                     if (!method.getModifiers().contains(ElementModifier.STATIC)) {
                         if (method.getReference().getName().equals("<init>")) {
                             renderInitializer(method);
@@ -385,8 +364,8 @@ public class Renderer implements RenderingManager {
                 }
             }
 
-            for (MethodNode method : nonInitMethods) {
-                renderBody(method, false);
+            for (MethodNode method : cls.getMethods()) {
+                renderBody(method, clinit != null);
             }
         } catch (NamingException e) {
             throw new RenderingException("Error rendering class " + cls.getName() + ". See a cause for details", e);
@@ -394,6 +373,68 @@ public class Renderer implements RenderingManager {
             throw new RenderingException("IO error occurred", e);
         }
         debugEmitter.emitClass(null);
+    }
+
+    private void renderCallClinit(MethodReader clinit, ClassNode cls)
+            throws IOException {
+        boolean isAsync = asyncMethods.contains(clinit.getReference());
+
+        if (isAsync) {
+            writer.append("var ").appendClass(cls.getName()).append("_$clinitCalled").ws().append("=").ws()
+                    .append("false;").softNewLine();
+        }
+
+        writer.append("function ").appendClass(cls.getName()).append("_$callClinit()").ws()
+                .append("{").softNewLine().indent();
+
+        if (isAsync) {
+            writer.append("var ").append(context.pointerName()).ws().append("=").ws()
+                    .append("0").append(";").softNewLine();
+            writer.append("if").ws().append("(").appendFunction("$rt_resuming").append("())").ws().append("{")
+                    .indent().softNewLine();
+            writer.append(context.pointerName()).ws().append("=").ws().appendFunction("$rt_nativeThread")
+                    .append("().pop();").softNewLine();
+            writer.outdent().append("}").ws();
+            writer.append("else if").ws().append("(").appendClass(cls.getName()).append("_$clinitCalled)").ws()
+                    .append("{").indent().softNewLine();
+            writer.append("return;").softNewLine();
+            writer.outdent().append("}").softNewLine();
+
+            renderAsyncPrologue();
+
+            writer.append("case 0:").indent().softNewLine();
+            writer.appendClass(cls.getName()).append("_$clinitCalled").ws().append('=').ws().append("true;")
+                    .softNewLine();
+        } else {
+            renderEraseClinit(cls);
+        }
+
+        if (isAsync) {
+            writer.append(context.pointerName()).ws().append("=").ws().append("1;").softNewLine();
+            writer.outdent().append("case 1:").indent().softNewLine();
+        }
+
+        writer.appendMethodBody(new MethodReference(cls.getName(), clinit.getDescriptor()))
+                .append("();").softNewLine();
+
+        if (isAsync) {
+            writer.append("if").ws().append("(").appendFunction("$rt_suspending").append("())").ws().append("{")
+                    .indent().softNewLine();
+            writer.append("break " + context.mainLoopName() + ";").softNewLine();
+            writer.outdent().append("}").softNewLine();
+            renderEraseClinit(cls);
+            writer.append("return;").softNewLine().outdent();
+
+            renderAsyncEpilogue();
+            writer.appendFunction("$rt_nativeThread").append("().push(" + context.pointerName() + ");").softNewLine();
+        }
+
+        writer.outdent().append("}").newLine();
+    }
+
+    private void renderEraseClinit(ClassNode cls) throws IOException {
+        writer.appendClass(cls.getName()).append("_$callClinit").ws().append("=").ws()
+                .append("function(){};").newLine();
     }
 
     private void renderClassMetadata(List<ClassNode> classes) {
@@ -436,30 +477,12 @@ public class Renderer implements RenderingManager {
                 }
                 writer.append(',').ws();
 
-                List<String> stubNames = new ArrayList<>();
                 List<MethodNode> virtualMethods = new ArrayList<>();
                 for (MethodNode method : cls.getMethods()) {
-                    if (clinit != null && (method.getModifiers().contains(ElementModifier.STATIC)
-                            || method.getReference().getName().equals("<init>"))) {
-                        stubNames.add(naming.getFullNameFor(method.getReference()));
-                    }
                     if (!method.getModifiers().contains(ElementModifier.STATIC)) {
                         virtualMethods.add(method);
                     }
                 }
-                if (stubNames.size() == 1) {
-                    writer.append("'").append(stubNames.get(0)).append("'");
-                } else {
-                    writer.append('[');
-                    for (int j = 0; j < stubNames.size(); ++j) {
-                        if (j > 0) {
-                            writer.append(",").ws();
-                        }
-                        writer.append("'").append(stubNames.get(j)).append("'");
-                    }
-                    writer.append(']');
-                }
-                writer.append(',').ws();
 
                 renderVirtualDeclarations(virtualMethods);
             }
@@ -566,18 +589,19 @@ public class Renderer implements RenderingManager {
         writer.append(");").ws().append("}");
     }
 
-    private void renderBody(MethodNode method, boolean inner) throws IOException {
+    private void renderBody(MethodNode method, boolean clinitNeeded) throws IOException {
+        boolean isClinit = (method.getModifiers().contains(ElementModifier.STATIC)
+                && !method.getReference().getName().equals("<clinit>"))
+                || method.getReference().getName().equals("<init>");
+
         StatementRenderer statementRenderer = new StatementRenderer(context, writer);
         statementRenderer.setCurrentMethod(method);
 
         MethodReference ref = method.getReference();
         debugEmitter.emitMethod(ref.getDescriptor());
         String name = naming.getFullNameFor(ref);
-        if (inner) {
-            writer.append(name).ws().append("=").ws().append("function(");
-        } else {
-            writer.append("function ").append(name).append("(");
-        }
+
+        writer.append("function ").append(name).append("(");
         int startParam = 0;
         if (method.getModifiers().contains(ElementModifier.STATIC)) {
             startParam = 1;
@@ -589,13 +613,27 @@ public class Renderer implements RenderingManager {
             writer.append(statementRenderer.variableName(i));
         }
         writer.append(")").ws().append("{").softNewLine().indent();
+
+        if (isClinit & clinitNeeded) {
+            writer.appendClass(method.getReference().getClassName()).append("_$callClinit();").softNewLine();
+        }
         method.acceptVisitor(new MethodBodyRenderer(statementRenderer));
         writer.outdent().append("}");
-        if (inner) {
-            writer.append(';');
-        }
+
         writer.newLine();
         debugEmitter.emitMethod(null);
+    }
+
+    private void renderAsyncPrologue() throws IOException {
+        writer.append(context.mainLoopName()).append(":").ws().append("while").ws().append("(true)")
+                .ws().append("{").ws();
+        writer.append("switch").ws().append("(").append(context.pointerName()).append(")").ws()
+                .append('{').softNewLine();
+    }
+
+    private void renderAsyncEpilogue() throws IOException {
+        writer.append("default:").ws().appendFunction("$rt_invalidPointer").append("();").softNewLine();
+        writer.append("}}").softNewLine();
     }
 
     private class MethodBodyRenderer implements MethodNodeVisitor, GeneratorContext {
@@ -640,7 +678,7 @@ public class Renderer implements RenderingManager {
                     variableNames.add(statementRenderer.variableName(i));
                 }
                 if (hasTryCatch) {
-                    variableNames.add("$je");
+                    variableNames.add("$$je");
                 }
                 if (!variableNames.isEmpty()) {
                     writer.append("var ");
@@ -687,7 +725,7 @@ public class Renderer implements RenderingManager {
                 }
                 boolean hasTryCatch = tryCatchFinder.tryCatchFound;
                 if (hasTryCatch) {
-                    variableNames.add("$je");
+                    variableNames.add("$$je");
                 }
                 variableNames.add(context.pointerName());
                 variableNames.add(context.tempVarName());
@@ -726,10 +764,8 @@ public class Renderer implements RenderingManager {
                 if (methodNode.getModifiers().contains(ElementModifier.SYNCHRONIZED)) {
                     writer.append("try").ws().append('{').indent().softNewLine();
                 }
-                writer.append(context.mainLoopName()).append(":").ws().append("while").ws().append("(true)")
-                        .ws().append("{").ws();
-                writer.append("switch").ws().append("(").append(context.pointerName()).append(")").ws()
-                        .append('{').softNewLine();
+
+                renderAsyncPrologue();
                 for (int i = 0; i < methodNode.getBody().size(); ++i) {
                     writer.append("case ").append(i).append(":").indent().softNewLine();
                     if (i == 0 && methodNode.getModifiers().contains(ElementModifier.SYNCHRONIZED)) {
@@ -746,8 +782,7 @@ public class Renderer implements RenderingManager {
                     part.getStatement().acceptVisitor(statementRenderer);
                     writer.outdent();
                 }
-                writer.append("default:").ws().appendFunction("$rt_invalidPointer").append("();").softNewLine();
-                writer.append("}}").softNewLine();
+                renderAsyncEpilogue();
 
                 if (methodNode.getModifiers().contains(ElementModifier.SYNCHRONIZED)) {
                     writer.outdent().append("}").ws().append("finally").ws().append('{').indent().softNewLine();

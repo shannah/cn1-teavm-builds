@@ -20,6 +20,7 @@ public class Variable implements VariableReader {
     private int index;
     private int register;
     private String debugName;
+    private String label;
 
     Variable(Program program) {
         this.program = program;
@@ -59,5 +60,18 @@ public class Variable implements VariableReader {
 
     public void setDebugName(String debugName) {
         this.debugName = debugName;
+    }
+
+    @Override
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public String getDisplayLabel() {
+        return label != null ? label : String.valueOf(index);
     }
 }

@@ -44,7 +44,6 @@ import org.teavm.model.Program;
 import org.teavm.model.RuntimeConstant;
 import org.teavm.model.TextLocation;
 import org.teavm.model.TryCatchBlockReader;
-import org.teavm.model.TryCatchJointReader;
 import org.teavm.model.ValueType;
 import org.teavm.model.VariableReader;
 import org.teavm.model.emit.ProgramEmitter;
@@ -55,7 +54,7 @@ import org.teavm.model.instructions.AssignInstruction;
 import org.teavm.model.instructions.InstructionReader;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.NullConstantInstruction;
-import org.teavm.model.util.ListingBuilder;
+import org.teavm.model.text.ListingBuilder;
 
 class DependencyGraphBuilder {
     private DependencyChecker dependencyChecker;
@@ -142,19 +141,6 @@ class DependencyGraphBuilder {
                 if (tryCatch.getExceptionType() != null) {
                     dependencyChecker.linkClass(tryCatch.getExceptionType(), new CallLocation(caller.getMethod()));
                 }
-
-                for (TryCatchJointReader joint : tryCatch.readJoints()) {
-                    DependencyNode receiverNode = nodes[joint.getReceiver().getIndex()];
-                    if (receiverNode == null) {
-                        continue;
-                    }
-                    for (VariableReader source : joint.readSourceVariables()) {
-                        DependencyNode sourceNode = nodes[source.getIndex()];
-                        if (sourceNode != null) {
-                            sourceNode.connect(receiverNode);
-                        }
-                    }
-                }
             }
         }
 
@@ -201,11 +187,12 @@ class DependencyGraphBuilder {
         boolean hasIndy = false;
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock block = program.basicBlockAt(i);
-            for (int j = 0; j < block.getInstructions().size(); ++j) {
-                Instruction insn = block.getInstructions().get(j);
+            for (Instruction insn : block) {
                 if (!(insn instanceof InvokeDynamicInstruction)) {
                     continue;
                 }
+                block = insn.getBasicBlock();
+
                 InvokeDynamicInstruction indy = (InvokeDynamicInstruction) insn;
                 MethodReference bootstrapMethod = new MethodReference(indy.getBootstrapMethod().getClassName(),
                         indy.getBootstrapMethod().getName(), indy.getBootstrapMethod().signature());
@@ -215,7 +202,7 @@ class DependencyGraphBuilder {
                     NullConstantInstruction nullInsn = new NullConstantInstruction();
                     nullInsn.setReceiver(indy.getReceiver());
                     nullInsn.setLocation(indy.getLocation());
-                    block.getInstructions().set(j, nullInsn);
+                    insn.replace(nullInsn);
                     CallLocation location = new CallLocation(caller.getMethod(), currentLocation);
                     dependencyChecker.getDiagnostics().error(location, "Substitutor for bootstrap "
                             + "method {{m0}} was not found", bootstrapMethod);
@@ -224,11 +211,11 @@ class DependencyGraphBuilder {
 
                 hasIndy = true;
                 BasicBlock splitBlock = program.createBasicBlock();
-                List<Instruction> splitInstructions = block.getInstructions().subList(j + 1,
-                        block.getInstructions().size());
-                List<Instruction> splitInstructionsBackup = new ArrayList<>(splitInstructions);
-                splitInstructions.clear();
-                splitBlock.getInstructions().addAll(splitInstructionsBackup);
+                while (insn.getNext() != null) {
+                    Instruction nextInsn = insn.getNext();
+                    nextInsn.delete();
+                    splitBlock.add(nextInsn);
+                }
 
                 for (int k = 0; k < program.basicBlockCount() - 1; ++k) {
                     BasicBlock replaceBlock = program.basicBlockAt(k);
@@ -243,7 +230,7 @@ class DependencyGraphBuilder {
 
                 pe.enter(block);
                 pe.setCurrentLocation(indy.getLocation());
-                block.getInstructions().remove(j);
+                insn.delete();
 
                 List<ValueEmitter> arguments = new ArrayList<>();
                 for (int k = 0; k < indy.getArguments().size(); ++k) {

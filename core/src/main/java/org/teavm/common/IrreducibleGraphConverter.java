@@ -19,6 +19,7 @@ import com.carrotsearch.hppc.IntOpenHashSet;
 import com.carrotsearch.hppc.IntSet;
 import com.carrotsearch.hppc.cursors.IntCursor;
 import java.util.Arrays;
+import java.util.function.IntPredicate;
 
 /**
  * <p>Converts irreducible graph to reducible one using node splitting algorithm described at
@@ -31,9 +32,19 @@ class IrreducibleGraphConverter {
     private Graph cfg;
     private int totalNodeCount;
     private GraphSplittingBackend backend;
+    private IntSet[] nodeCopies;
+    private IntegerArray nodeOriginals;
 
-    public void convertToReducible(Graph cfg, int[] weight, GraphSplittingBackend backend) {
+    void convertToReducible(Graph cfg, int[] weight, GraphSplittingBackend backend) {
         this.backend = backend;
+
+        nodeCopies = new IntOpenHashSet[cfg.size()];
+        nodeOriginals = new IntegerArray(cfg.size());
+        for (int i = 0; i < cfg.size(); ++i) {
+            nodeCopies[i] = new IntOpenHashSet();
+            nodeOriginals.add(i);
+        }
+
         int[][] identityNodeMap = new int[cfg.size()][];
         for (int i = 0; i < identityNodeMap.length; ++i) {
             identityNodeMap[i] = new int[] { i };
@@ -58,8 +69,8 @@ class IrreducibleGraphConverter {
             }
             if (irreducible) {
                 DJGraphNodeFilter filter = new DJGraphNodeFilter(djGraph, level);
-                int[][] sccs = GraphUtils.findStronglyConnectedComponents(djGraph.getGraph(),
-                        djGraph.level(level), filter);
+                Graph graph = GraphUtils.subgraph(djGraph.getGraph(), filter);
+                int[][] sccs = GraphUtils.findStronglyConnectedComponents(graph, djGraph.level(level));
                 for (int[] scc : sccs) {
                     if (scc.length > 1) {
                         handleStronglyConnectedComponent(djGraph, scc, nodeMap);
@@ -162,7 +173,11 @@ class IrreducibleGraphConverter {
         }
 
         // Delegate splitting to domain
-        int[][] newNodes = unflatten(backend.split(flatten(mappedDomain), flatten(mappedNonDomain)), mappedNonDomain);
+        int[] nodesToCopy = withCopies(flatten(mappedNonDomain));
+        int[] copies = backend.split(withCopies(flatten(mappedDomain)), nodesToCopy);
+        registerCopies(nodesToCopy, copies);
+
+        int[][] newNodes = unflatten(withoutCopies(copies), mappedNonDomain);
         for (int[] nodes : newNodes) {
             totalNodeCount += nodes.length;
         }
@@ -230,6 +245,50 @@ class IrreducibleGraphConverter {
         handleLoops(new DJGraph(builder.build(), mappedWeight), newNodeMap);
     }
 
+    private int[] withCopies(int[] nodes) {
+        IntegerArray nodesWithCopies = new IntegerArray(nodes.length);
+        for (int node : nodes) {
+            nodesWithCopies.add(node);
+            IntSet copies = nodeCopies[node];
+            if (copies != null) {
+                nodesWithCopies.addAll(copies.toArray());
+            }
+        }
+        return nodesWithCopies.getAll();
+    }
+
+    private int[] withoutCopies(int[] nodesWithCopies) {
+        IntSet visited = new IntOpenHashSet();
+        int[] nodes = new int[nodesWithCopies.length];
+        int sz = 0;
+        for (int node : nodesWithCopies) {
+            node = nodeOriginals.get(node);
+            if (visited.add(node)) {
+                nodes[sz++] = node;
+            }
+        }
+        return Arrays.copyOf(nodes, sz);
+    }
+
+    private void registerCopies(int[] originalNodes, int[] copies) {
+        for (int i = 0; i < originalNodes.length; ++i) {
+            int original = nodeOriginals.get(originalNodes[i]);
+            int copy = copies[i];
+            IntSet knownCopies = nodeCopies[original];
+            if (knownCopies == null) {
+                knownCopies = new IntOpenHashSet();
+                nodeCopies[original] = knownCopies;
+            }
+
+            if (knownCopies.add(copy)) {
+                while (nodeOriginals.size() <= copy) {
+                    nodeOriginals.add(-1);
+                }
+                nodeOriginals.set(copy, original);
+            }
+        }
+    }
+
     private void collapse(DJGraph djGraph, int[] scc, int[][] nodeMap) {
         int cls = djGraph.collapse(scc);
         IntegerArray nodes = new IntegerArray(djGraph.getGraph().size());
@@ -273,7 +332,7 @@ class IrreducibleGraphConverter {
         return rough;
     }
 
-    static class DJGraphNodeFilter implements GraphNodeFilter {
+    static class DJGraphNodeFilter implements IntPredicate {
         private DJGraph graph;
         private int level;
 
@@ -283,7 +342,7 @@ class IrreducibleGraphConverter {
         }
 
         @Override
-        public boolean match(int node) {
+        public boolean test(int node) {
             return graph.levelOf(node) >= level;
         }
     }

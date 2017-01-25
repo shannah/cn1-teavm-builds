@@ -1,0 +1,12 @@
+    var @a as a_debug
+    var @b as b_debug
+    // it's a simple comment
+
+$first
+    nop
+    @a_1 := @a
+    @a_1[@b] := @c as int
+    goto $second
+
+$second
+    return @c

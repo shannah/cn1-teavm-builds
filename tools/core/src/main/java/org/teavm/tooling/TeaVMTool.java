@@ -99,7 +99,7 @@ public class TeaVMTool implements BaseTeaVMTool {
     private DebugInformationBuilder debugEmitter;
     private JavaScriptTarget javaScriptTarget;
     private WasmTarget webAssemblyTarget;
-    private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0xC;
+    private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0xD;
 
     public File getTargetDirectory() {
         return targetDirectory;
@@ -444,8 +444,9 @@ public class TeaVMTool implements BaseTeaVMTool {
 
             if (targetType == TeaVMTargetType.JAVASCRIPT) {
                 try (OutputStream output = new FileOutputStream(new File(targetDirectory, outputName), true)) {
-                    Writer writer = new OutputStreamWriter(output, "UTF-8");
-                    additionalJavaScriptOutput(writer);
+                    try (Writer writer = new OutputStreamWriter(output, "UTF-8")) {
+                        additionalJavaScriptOutput(writer);
+                    }
                 }
             }
 

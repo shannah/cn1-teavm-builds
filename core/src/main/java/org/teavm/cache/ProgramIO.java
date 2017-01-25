@@ -63,18 +63,10 @@ public class ProgramIO {
                 data.writeInt(tryCatch.getExceptionType() != null ? symbolTable.lookup(
                         tryCatch.getExceptionType()) : -1);
                 data.writeShort(tryCatch.getHandler().getIndex());
-                data.writeShort(tryCatch.getJoints().size());
-                for (TryCatchJoint joint : tryCatch.getJoints()) {
-                    data.writeShort(joint.getReceiver().getIndex());
-                    data.writeShort(joint.getSourceVariables().size());
-                    for (Variable sourceVar : joint.getSourceVariables()) {
-                        data.writeShort(sourceVar.getIndex());
-                    }
-                }
             }
             TextLocation location = null;
             InstructionWriter insnWriter = new InstructionWriter(data);
-            for (Instruction insn : basicBlock.getInstructions()) {
+            for (Instruction insn : basicBlock) {
                 try {
                     if (!Objects.equals(location, insn.getLocation())) {
                         location = insn.getLocation();
@@ -141,17 +133,6 @@ public class ProgramIO {
                 }
                 tryCatch.setHandler(program.basicBlockAt(data.readShort()));
 
-                int jointCount = data.readShort();
-                for (int k = 0; k < jointCount; ++k) {
-                    TryCatchJoint joint = new TryCatchJoint();
-                    joint.setReceiver(program.variableAt(data.readShort()));
-                    int jointSourceCount = data.readShort();
-                    for (int m = 0; m < jointSourceCount; ++m) {
-                        joint.getSourceVariables().add(program.variableAt(data.readShort()));
-                    }
-                    tryCatch.getJoints().add(joint);
-                }
-
                 block.getTryCatchBlocks().add(tryCatch);
             }
 
@@ -173,7 +154,7 @@ public class ProgramIO {
                     default: {
                         Instruction insn = readInstruction(insnType, program, data);
                         insn.setLocation(location);
-                        block.getInstructions().add(insn);
+                        block.add(insn);
                         break;
                     }
                 }
@@ -932,16 +913,20 @@ public class ProgramIO {
                 insn.setInstance(program.variableAt(input.readShort()));
                 String className = symbolTable.at(input.readInt());
                 String fieldName = symbolTable.at(input.readInt());
+                ValueType type = ValueType.parse(symbolTable.at(input.readInt()));
                 insn.setField(new FieldReference(className, fieldName));
                 insn.setValue(program.variableAt(input.readShort()));
+                insn.setFieldType(type);
                 return insn;
             }
             case 27: {
                 PutFieldInstruction insn = new PutFieldInstruction();
                 String className = symbolTable.at(input.readInt());
                 String fieldName = symbolTable.at(input.readInt());
+                ValueType type = ValueType.parse(symbolTable.at(input.readInt()));
                 insn.setField(new FieldReference(className, fieldName));
                 insn.setValue(program.variableAt(input.readShort()));
+                insn.setFieldType(type);
                 return insn;
             }
             case 28: {

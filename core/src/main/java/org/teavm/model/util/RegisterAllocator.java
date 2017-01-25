@@ -18,10 +18,8 @@ package org.teavm.model.util;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.teavm.common.DisjointSet;
 import org.teavm.common.MutableGraphEdge;
 import org.teavm.common.MutableGraphNode;
@@ -33,16 +31,12 @@ import org.teavm.model.MethodReference;
 import org.teavm.model.Phi;
 import org.teavm.model.Program;
 import org.teavm.model.ProgramReader;
-import org.teavm.model.TryCatchBlock;
-import org.teavm.model.TryCatchJoint;
 import org.teavm.model.Variable;
 import org.teavm.model.instructions.AssignInstruction;
-import org.teavm.model.instructions.EmptyInstruction;
 import org.teavm.model.instructions.JumpInstruction;
 
 public class RegisterAllocator {
     public void allocateRegisters(MethodReader method, Program program) {
-        insertJointArgumentsCopies(program);
         insertPhiArgumentsCopies(program);
         InterferenceGraphBuilder interferenceBuilder = new InterferenceGraphBuilder();
         LivenessAnalyzer liveness = new LivenessAnalyzer();
@@ -92,9 +86,6 @@ public class RegisterAllocator {
 
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             program.basicBlockAt(i).getPhis().clear();
-            for (TryCatchBlock tryCatch : program.basicBlockAt(i).getTryCatchBlocks()) {
-                tryCatch.getJoints().clear();
-            }
         }
     }
 
@@ -138,41 +129,6 @@ public class RegisterAllocator {
         }
     }
 
-    private void insertJointArgumentsCopies(Program program) {
-        for (int i = 0; i < program.basicBlockCount(); ++i) {
-            BasicBlock block = program.basicBlockAt(i);
-            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
-                tryCatch.getJoints().forEach(this::insertCopy);
-            }
-        }
-    }
-
-    private void insertCopy(TryCatchJoint joint) {
-        Set<Variable> variableSet = new HashSet<>(joint.getSourceVariables());
-
-        BasicBlock block = joint.getBlock().getProtectedBlock();
-        DefinitionExtractor defExtractor = new DefinitionExtractor();
-        for (int i = block.getInstructions().size() - 1; i >= 0; --i) {
-            Instruction insn = block.getInstructions().get(i);
-            insn.acceptVisitor(defExtractor);
-            for (Variable definedVar : defExtractor.getDefinedVariables()) {
-                if (variableSet.remove(definedVar)) {
-                    AssignInstruction copyInsn = new AssignInstruction();
-                    copyInsn.setReceiver(joint.getReceiver());
-                    copyInsn.setAssignee(definedVar);
-                    block.getInstructions().add(i, copyInsn);
-                }
-            }
-        }
-
-        for (Variable enteringVar : variableSet) {
-            AssignInstruction copyInsn = new AssignInstruction();
-            copyInsn.setReceiver(joint.getReceiver());
-            copyInsn.setAssignee(enteringVar);
-            block.getInstructions().add(0, copyInsn);
-        }
-    }
-
     private void insertPhiArgumentsCopies(Program program) {
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             Map<BasicBlock, BasicBlock> blockMap = new HashMap<>();
@@ -206,14 +162,14 @@ public class RegisterAllocator {
             final BasicBlock copyBlock = program.createBasicBlock();
             JumpInstruction jumpInstruction = new JumpInstruction();
             jumpInstruction.setTarget(phi.getBasicBlock());
-            copyBlock.getInstructions().add(jumpInstruction);
-            incoming.getSource().getLastInstruction().acceptVisitor(new BasicBlockMapper(block ->
+            copyBlock.add(jumpInstruction);
+            incoming.getSource().getLastInstruction().acceptVisitor(new BasicBlockMapper((int block) ->
                     block == phi.getBasicBlock().getIndex() ? copyBlock.getIndex() : block));
             blockMap.put(source, copyBlock);
             incoming.setSource(copyBlock);
             source = copyBlock;
         }
-        source.getInstructions().add(source.getInstructions().size() - 1, copyInstruction);
+        source.getLastInstruction().insertPrevious(copyInstruction);
         incoming.setValue(copyInstruction.getReceiver());
     }
 
@@ -221,8 +177,9 @@ public class RegisterAllocator {
             DisjointSet congruenceClasses) {
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock block = program.basicBlockAt(i);
-            for (int j = 0; j < block.getInstructions().size(); ++j) {
-                Instruction insn = block.getInstructions().get(j);
+            Instruction nextInsn;
+            for (Instruction insn = block.getFirstInstruction(); insn != null; insn = nextInsn) {
+                nextInsn = insn.getNext();
                 if (!(insn instanceof AssignInstruction)) {
                     continue;
                 }
@@ -242,7 +199,7 @@ public class RegisterAllocator {
                 }
                 if (!interfere) {
                     int newClass = congruenceClasses.union(copyClass, origClass);
-                    block.getInstructions().set(j, new EmptyInstruction());
+                    insn.delete();
                     if (newClass == interferenceGraph.size()) {
                         MutableGraphNode newNode = new MutableGraphNode(interferenceGraph.size());
                         interferenceGraph.add(newNode);
@@ -318,13 +275,6 @@ public class RegisterAllocator {
             for (Phi phi : block.getPhis()) {
                 for (Incoming incoming : phi.getIncomings()) {
                     classes.union(phi.getReceiver().getIndex(), incoming.getValue().getIndex());
-                }
-            }
-            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
-                for (TryCatchJoint joint : tryCatch.getJoints()) {
-                    for (Variable sourceVar : joint.getSourceVariables()) {
-                        classes.union(sourceVar.getIndex(), joint.getReceiver().getIndex());
-                    }
                 }
             }
         }

@@ -13,14 +13,16 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.model;
+package org.teavm.model.optimization;
 
-import java.util.List;
+import org.teavm.dependency.DependencyInfo;
+import org.teavm.model.ClassReaderSource;
+import org.teavm.model.MethodReader;
 
-public interface TryCatchJointReader {
-    List<VariableReader> readSourceVariables();
+public interface MethodOptimizationContext {
+    MethodReader getMethod();
 
-    VariableReader getReceiver();
+    DependencyInfo getDependencyInfo();
 
-    TryCatchBlockReader getBlock();
+    ClassReaderSource getClassSource();
 }

@@ -16,21 +16,21 @@
 package org.teavm.idea.ui;
 
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleServiceManager;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import javax.swing.JComponent;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
-import org.teavm.idea.TeaVMConfigurationStorage;
 import org.teavm.idea.jps.model.TeaVMJpsConfiguration;
 
 public class TeaVMConfigurable implements Configurable {
     private final Module module;
     private TeaVMConfigurationPanel panel;
+    private TeaVMJpsConfiguration configuration;
 
-    public TeaVMConfigurable(Module module) {
+    public TeaVMConfigurable(Module module, TeaVMJpsConfiguration configuration) {
         this.module = module;
+        this.configuration = configuration;
     }
 
     @Nls
@@ -61,23 +61,12 @@ public class TeaVMConfigurable implements Configurable {
 
     @Override
     public void apply() throws ConfigurationException {
-        TeaVMJpsConfiguration config = new TeaVMJpsConfiguration();
-        panel.save(config);
-        TeaVMConfigurationStorage configStorage = ModuleServiceManager.getService(module,
-                TeaVMConfigurationStorage.class);
-        assert configStorage != null;
-        configStorage.loadState(config);
+        panel.save(configuration);
     }
 
     @Override
     public void reset() {
-        if (panel == null) {
-            return;
-        }
-        TeaVMConfigurationStorage configStorage = ModuleServiceManager.getService(module,
-                TeaVMConfigurationStorage.class);
-        assert configStorage != null;
-        panel.load(configStorage.getState());
+        panel.load(configuration);
     }
 
     @Override

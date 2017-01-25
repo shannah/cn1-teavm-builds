@@ -121,16 +121,8 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
         this.async = async;
     }
 
-    public MethodNode getCurrentMethod() {
-        return currentMethod;
-    }
-
     public void setCurrentMethod(MethodNode currentMethod) {
         this.currentMethod = currentMethod;
-    }
-
-    public int getCurrentPart() {
-        return currentPart;
     }
 
     public void setCurrentPart(int currentPart) {
@@ -433,6 +425,9 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                 pushLocation(statement.getLocation());
             }
             writer.appendClass(statement.getClassName()).append("_$callClinit();").softNewLine();
+            if (statement.isAsync()) {
+                emitSuspendChecker();
+            }
             if (statement.getLocation() != null) {
                 popLocation();
             }
@@ -463,7 +458,7 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                     ? currentMethod.getVariables().get(index)
                     : null;
             if (variable != null && variable.getName() != null) {
-                String result = RenderingUtil.escapeName(variable.getName());
+                String result = "$" + RenderingUtil.escapeName(variable.getName());
                 if (keywords.contains(result) || !usedVariableNames.add(result)) {
                     String base = result;
                     int suffix = 0;
@@ -1142,8 +1137,19 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
             if (expr.getLocation() != null) {
                 pushLocation(expr.getLocation());
             }
+
+            Precedence outerPrecedence = precedence;
+            if (outerPrecedence.ordinal() > Precedence.FUNCTION_CALL.ordinal()) {
+                writer.append('(');
+            }
+
             precedence = Precedence.FUNCTION_CALL;
+
             writer.append("new ").append(naming.getNameFor(expr.getConstructedClass()));
+            if (outerPrecedence.ordinal() > Precedence.FUNCTION_CALL.ordinal()) {
+                writer.append(')');
+            }
+
             if (expr.getLocation() != null) {
                 popLocation();
             }
@@ -1349,25 +1355,25 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                 protectedBody = nextStatement.getProtectedBody();
             }
             visitStatements(protectedBody);
-            writer.outdent().append("}").ws().append("catch").ws().append("($e)")
+            writer.outdent().append("}").ws().append("catch").ws().append("($$e)")
                     .ws().append("{").indent().softNewLine();
-            writer.append("$je").ws().append("=").ws().append("$e.$javaException;").softNewLine();
+            writer.append("$$je").ws().append("=").ws().append("$$e.$javaException;").softNewLine();
             for (TryCatchStatement catchClause : sequence) {
-                writer.append("if").ws().append("($je");
+                writer.append("if").ws().append("($$je");
                 if (catchClause.getExceptionType() != null) {
-                    writer.ws().append("&&").ws().append("$je instanceof ")
+                    writer.ws().append("&&").ws().append("$$je instanceof ")
                             .appendClass(catchClause.getExceptionType());
                 }
                 writer.append(")").ws().append("{").indent().softNewLine();
                 if (catchClause.getExceptionVariable() != null) {
                     writer.append(variableName(catchClause.getExceptionVariable())).ws().append("=").ws()
-                            .append("$je;").softNewLine();
+                            .append("$$je;").softNewLine();
                 }
                 visitStatements(catchClause.getHandler());
                 writer.outdent().append("}").ws().append("else ");
             }
             writer.append("{").indent().softNewLine();
-            writer.append("throw $e;").softNewLine();
+            writer.append("throw $$e;").softNewLine();
             writer.outdent().append("}").softNewLine();
             writer.outdent().append("}").softNewLine();
         } catch (IOException e) {
