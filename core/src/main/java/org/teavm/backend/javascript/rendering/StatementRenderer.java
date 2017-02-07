@@ -111,6 +111,10 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
         this.minifying = context.isMinifying();
         this.naming = context.getNaming();
         this.debugEmitter = context.getDebugEmitter();
+        usedVariableNames.add(context.tempVarName());
+        usedVariableNames.add(context.pointerName());
+        usedVariableNames.add(context.threadName());
+        usedVariableNames.add("arguments");
     }
 
     public boolean isAsync() {
@@ -936,7 +940,7 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
             expr.getAlternative().acceptVisitor(this);
 
             if (outerPrecedence.ordinal() > Precedence.CONDITIONAL.ordinal()) {
-                writer.append('(');
+                writer.append(')');
             }
 
             if (expr.getLocation() != null) {
