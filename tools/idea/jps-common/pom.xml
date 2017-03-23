@@ -1,5 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
 <!--
-  ~  Copyright 2016 Alexey Andreev.
+  ~  Copyright 2017 Alexey Andreev.
   ~
   ~  Licensed under the Apache License, Version 2.0 (the "License");
   ~  you may not use this file except in compliance with the License.
@@ -13,43 +15,67 @@
   ~  See the License for the specific language governing permissions and
   ~  limitations under the License.
   -->
+
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <parent>
+    <artifactId>teavm-idea-parent</artifactId>
+    <groupId>org.teavm</groupId>
+    <version>0.5.0-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
   <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>org.teavm</groupId>
-    <artifactId>teavm</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-    <relativePath>../../..</relativePath>
-  </parent>
-  <packaging>pom</packaging>
+  <artifactId>teavm-jps-common</artifactId>
+  <name>TeaVM IDEA JPS common artifact</name>
 
-  <artifactId>teavm-jps-repack</artifactId>
+  <properties>
+    <idea.artifacts.dir>${basedir}/..</idea.artifacts.dir>
+  </properties>
 
   <dependencies>
     <dependency>
-      <groupId>org.teavm</groupId>
-      <artifactId>teavm-tooling</artifactId>
-      <version>${project.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-api</artifactId>
-        </exclusion>
-      </exclusions>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>openapi</artifactId>
+      <version>${idea.version}</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.teavm</groupId>
-      <artifactId>teavm-chrome-rdp</artifactId>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>annotations</artifactId>
+      <version>${idea.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>jdom</artifactId>
+      <version>${idea.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>util</artifactId>
+      <version>${idea.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>jps-model</artifactId>
+      <version>${idea.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>jps-builders</artifactId>
+      <version>${idea.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.teavm.idea</groupId>
+      <artifactId>teavm</artifactId>
       <version>${project.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-api</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
   </dependencies>
 
@@ -57,30 +83,13 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>2.4.3</version>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals>
-              <goal>shade</goal>
-            </goals>
-            <configuration>
-              <outputFile>lib/teavm-all.jar</outputFile>
-              <relocations>
-                <relocation>
-                  <pattern>org.objectweb.asm</pattern>
-                  <shadedPattern>org.teavm.asm</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>org.objectweb.asm</pattern>
-                  <shadedPattern>org.teavm.asm</shadedPattern>
-                </relocation>
-              </relocations>
-            </configuration>
-          </execution>
-        </executions>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <configuration>
+          <configLocation>../../checkstyle.xml</configLocation>
+          <propertyExpansion>config_loc=${basedir}/../../../</propertyExpansion>
+        </configuration>
       </plugin>
     </plugins>
   </build>
+
 </project>

@@ -176,11 +176,34 @@ public final class MetaprogrammingImpl {
     }
 
     public static void location(String fileName, int lineNumber) {
-        unsupported();
+        generator.forcedLocation = new TextLocation(fileName, lineNumber);
     }
 
     public static void defaultLocation() {
-        unsupported();
+        generator.forcedLocation = null;
+    }
+
+    public static SourceLocation getLocation() {
+        TextLocation location = generator.forcedLocation;
+        if (location == null) {
+            location = generator.location;
+        }
+        if (location == null) {
+            return null;
+        }
+
+        ReflectClassImpl<?> cls = reflectContext.findClass(templateMethod.getClassName());
+        if (cls == null) {
+            return null;
+        }
+        cls.resolve();
+        MethodReader methodReader = cls.classReader.getMethod(templateMethod.getDescriptor());
+        if (methodReader == null) {
+            return null;
+        }
+        ReflectMethod method = new ReflectMethodImpl(cls, methodReader);
+        return new SourceLocation(method, location != null ? location.getFileName() : null,
+                location != null ? location.getLine() : null);
     }
 
     @SuppressWarnings("WeakerAccess")
@@ -249,6 +272,7 @@ public final class MetaprogrammingImpl {
                 returnType = methodHolder.getResultType();
                 varContext = nestedVarContext;
                 generator = new CompositeMethodGenerator(varContext, new Program());
+                generator.forcedLocation = generatorBackup.forcedLocation;
 
                 Program program = generator.program;
                 program.createBasicBlock();
@@ -280,7 +304,7 @@ public final class MetaprogrammingImpl {
                 jumpToStart.setTarget(program.basicBlockAt(startBlock.getIndex() + 1));
                 startBlock.add(jumpToStart);
 
-                new Optimizations().apply(program);
+                new Optimizations().apply(program, new MethodReference(cls.getName(), methodHolder.getDescriptor()));
                 cls.addMethod(methodHolder);
             } finally {
                 returnType = returnTypeBackup;
@@ -404,6 +428,9 @@ public final class MetaprogrammingImpl {
         }
 
         private CallLocation convertLocation(SourceLocation location) {
+            if (location == null) {
+                return null;
+            }
             MethodReader method = ((ReflectMethodImpl) location.getMethod()).method;
             return location.getFileName() != null
                     ? new CallLocation(method.getReference(),

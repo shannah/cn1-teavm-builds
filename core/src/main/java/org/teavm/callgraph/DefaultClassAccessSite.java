@@ -15,19 +15,16 @@
  */
 package org.teavm.callgraph;
 
+import java.io.Serializable;
 import java.util.Objects;
 import org.teavm.model.TextLocation;
 
-/**
- *
- * @author Alexey Andreev
- */
-public class DefaultClassAccessSite implements ClassAccessSite {
+public class DefaultClassAccessSite implements ClassAccessSite, Serializable {
     private TextLocation location;
-    private CallGraphNode callee;
+    private DefaultCallGraphNode callee;
     private String className;
 
-    DefaultClassAccessSite(TextLocation location, CallGraphNode callee, String className) {
+    DefaultClassAccessSite(TextLocation location, DefaultCallGraphNode callee, String className) {
         this.location = location;
         this.callee = callee;
         this.className = className;
@@ -39,7 +36,7 @@ public class DefaultClassAccessSite implements ClassAccessSite {
     }
 
     @Override
-    public CallGraphNode getCallee() {
+    public DefaultCallGraphNode getCallee() {
         return callee;
     }
 

@@ -36,6 +36,30 @@ public class VMTest {
     }
 
     @Test
+    public void emptyMultiArrayCreated() {
+        int[][] array = new int[0][0];
+        assertEquals(0, array.length);
+        assertEquals(int[][].class, array.getClass());
+    }
+
+    @Test
+    public void emptyMultiArrayCreated2() {
+        int[][][] array = new int[1][0][1];
+        assertEquals(1, array.length);
+        assertEquals(0, array[0].length);
+        assertEquals(int[][][].class, array.getClass());
+    }
+
+    @Test
+    public void emptyMultiArrayCreated3() {
+        int[][][] array = new int[1][1][0];
+        assertEquals(1, array.length);
+        assertEquals(1, array[0].length);
+        assertEquals(0, array[0][0].length);
+        assertEquals(int[][][].class, array.getClass());
+    }
+
+    @Test
     public void catchesException() {
         try {
             throw new IllegalArgumentException();
@@ -137,6 +161,20 @@ public class VMTest {
     }
 
     @Test
+    public void asyncClinitInstance() {
+        AsyncClinitClass acl = new AsyncClinitClass();
+        assertEquals("ok", AsyncClinitClass.state);
+        assertEquals("ok", acl.instanceState);
+    }
+
+    @Test
+    public void asyncWait() {
+        AsyncClinitClass acl = new AsyncClinitClass();
+        acl.doWait();
+        assertEquals("ok", acl.instanceState);
+    }
+
+    @Test
     @SkipJVM
     public void loopAndExceptionPhi() {
         int[] a = createArray();
@@ -194,6 +232,7 @@ public class VMTest {
 
     private static class AsyncClinitClass {
         static String state = "";
+        String instanceState = "";
 
         static {
             initCount++;
@@ -211,6 +250,31 @@ public class VMTest {
 
         public static String bar() {
             return "bar";
+        }
+
+        public AsyncClinitClass() {
+            instanceState += "ok";
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException ie) {
+                throw new RuntimeException(ie);
+            }
+        }
+
+        public synchronized void doWait() {
+            new Thread(() -> {
+                synchronized (AsyncClinitClass.this) {
+                    notify();
+                }
+            }).start();
+
+            try {
+                Thread.sleep(1);
+                wait();
+            } catch (InterruptedException ie) {
+                instanceState = "error";
+                throw new RuntimeException(ie);
+            }
         }
     }
 

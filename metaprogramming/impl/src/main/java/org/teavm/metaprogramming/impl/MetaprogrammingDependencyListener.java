@@ -93,7 +93,7 @@ public class MetaprogrammingDependencyListener extends AbstractDependencyListene
             result.returnValue();
         }
 
-        agent.submitMethod(model.getMethod(), new Optimizations().apply(pe.getProgram()));
+        agent.submitMethod(model.getMethod(), new Optimizations().apply(pe.getProgram(), model.getMethod()));
     }
 
     private void emitMultipleUsage(MethodModel model, ProgramEmitter pe, DependencyAgent agent,
@@ -107,7 +107,7 @@ public class MetaprogrammingDependencyListener extends AbstractDependencyListene
             ValueType type = usageEntry.getKey();
             String typeName = type instanceof ValueType.Object
                     ? ((ValueType.Object) type).getClassName()
-                    : type.toString();
+                    : type.toString().replace('/', '.');
             choice.option(typeName, () -> {
                 MethodReference implMethod = usageEntry.getValue();
                 ValueEmitter[] castParamVars = new ValueEmitter[paramVars.length];
@@ -132,6 +132,6 @@ public class MetaprogrammingDependencyListener extends AbstractDependencyListene
             }
         });
 
-        agent.submitMethod(model.getMethod(), new Optimizations().apply(pe.getProgram()));
+        agent.submitMethod(model.getMethod(), new Optimizations().apply(pe.getProgram(), model.getMethod()));
     }
 }
