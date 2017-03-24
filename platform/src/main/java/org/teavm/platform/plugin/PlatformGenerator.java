@@ -117,9 +117,6 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
                         .appendMethodBody(method.getReference()).append(";").softNewLine();
             }
         }
-        writer.appendMethodBody(Platform.class, "newInstance", PlatformClass.class, Object.class).ws().append('=').ws()
-                .appendMethodBody(Platform.class, "newInstanceImpl", PlatformClass.class, Object.class)
-                .append(";").softNewLine();
     }
 
     private void generateNewInstance(GeneratorContext context, SourceWriter writer) throws IOException {
@@ -128,6 +125,9 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
         writer.append("if").ws().append("($rt_resuming())").ws().append("{").indent().softNewLine();
         writer.append("var $r = $rt_nativeThread().pop();").softNewLine();
         writer.append(cls + ".$$constructor$$($r);").softNewLine();
+        writer.append("if").ws().append("($rt_suspending())").ws().append("{").indent().softNewLine();
+        writer.append("return").ws().append("$rt_nativeThread().push($r);").softNewLine();
+        writer.outdent().append("}").softNewLine();
         writer.append("return $r;").softNewLine();
         writer.outdent().append("}").softNewLine();
 

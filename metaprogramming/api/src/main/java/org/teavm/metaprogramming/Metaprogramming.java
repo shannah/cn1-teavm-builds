@@ -55,6 +55,11 @@ public final class Metaprogramming {
         unsupported();
     }
 
+    public static SourceLocation getLocation() {
+        unsupported();
+        return null;
+    }
+
     public static ReflectClass<?> findClass(String name) {
         unsupported();
         return null;
@@ -80,7 +85,8 @@ public final class Metaprogramming {
     }
 
     public static <T> Value<T> proxy(Class<T> type, InvocationHandler<T> handler)  {
-        return proxy(findClass(type), handler);
+        unsupported();
+        return null;
     }
 
     public static <T> Value<T> proxy(ReflectClass<T> type, InvocationHandler<T> handler) {

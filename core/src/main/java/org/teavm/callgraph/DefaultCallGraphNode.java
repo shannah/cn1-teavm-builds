@@ -25,21 +25,17 @@ import org.teavm.model.FieldReference;
 import org.teavm.model.MethodReference;
 import org.teavm.model.TextLocation;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class DefaultCallGraphNode implements CallGraphNode {
     private DefaultCallGraph graph;
     private MethodReference method;
-    private Set<DefaultCallSite> callSites = new HashSet<>();
-    private transient Set<DefaultCallSite> safeCallSites;
-    private List<DefaultCallSite> callerCallSites = new ArrayList<>();
-    private transient List<DefaultCallSite> safeCallersCallSites;
-    private Set<DefaultFieldAccessSite> fieldAccessSites = new HashSet<>();
-    private transient Set<DefaultFieldAccessSite> safeFieldAccessSites;
-    private Set<DefaultClassAccessSite> classAccessSites = new HashSet<>();
-    private transient Set<DefaultClassAccessSite> safeClassAccessSites;
+    Set<DefaultCallSite> callSites = new HashSet<>();
+    private Set<DefaultCallSite> safeCallSites;
+    List<DefaultCallSite> callerCallSites = new ArrayList<>();
+    private List<DefaultCallSite> safeCallersCallSites;
+    Set<DefaultFieldAccessSite> fieldAccessSites = new HashSet<>();
+    private Set<DefaultFieldAccessSite> safeFieldAccessSites;
+    Set<DefaultClassAccessSite> classAccessSites = new HashSet<>();
+    private Set<DefaultClassAccessSite> safeClassAccessSites;
 
     DefaultCallGraphNode(DefaultCallGraph graph, MethodReference method) {
         this.graph = graph;
@@ -106,7 +102,7 @@ public class DefaultCallGraphNode implements CallGraphNode {
     }
 
     @Override
-    public Collection<? extends ClassAccessSite> getClassAccessSites() {
+    public Collection<DefaultClassAccessSite> getClassAccessSites() {
         if (safeClassAccessSites == null) {
             safeClassAccessSites = Collections.unmodifiableSet(classAccessSites);
         }
