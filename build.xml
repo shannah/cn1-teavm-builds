@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="CN1TeaVM-Builds" default="default" basedir=".">
     <description>Creates a new Release of TeaVM for the CN1 Build server</description>
-    <property value="0.5.0-cn1-001" name="cn1.release.version"/>
+    <property value="0.5.0-cn1-002" name="cn1.release.version"/>
     <property value="0.5.0-SNAPSHOT" name="teavm.snapshot.version"/>
-    
+
     <target name="merge-master" description="Merges master">
         <exec executable="sh" dir=".">
             <arg value="merge-master.sh"/>
         </exec>
     </target>
-    
+
     <target name="release" depends="merge-master" description="Creates a new release">
-        <exec executable="mvn" dir=".">
+        <exec executable="mvn" dir="." failonerror="true">
             <arg value="clean"/>
             <arg value="release:prepare"/>
             <arg value="--batch-mode"/>
@@ -20,6 +20,7 @@
             <arg value="-DdevelopmentVersion=${teavm.snapshot.version}"/>
             <arg value="-DautoVersionSubmodules=true"/>
             <arg value="-Darguments='-DskipTests=true'"/>
+            <!--<arg value="-X"/>-->
         </exec>
          <exec executable="mvn" dir=".">
             <arg value="clean"/>
