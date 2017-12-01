@@ -35,14 +35,11 @@ import org.teavm.model.ElementModifier;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
+import org.teavm.model.ValueType;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class JavaScriptBodyDependency extends AbstractDependencyListener {
     private DependencyNode allClassesNode;
-    private Map<MethodReference, Set<MethodReference>> achievedMethods = new HashMap<>();
+    private Map<MethodReference, Set<MethodReference>> reachedMethods = new HashMap<>();
 
     @Override
     public void started(DependencyAgent agent) {
@@ -50,9 +47,13 @@ public class JavaScriptBodyDependency extends AbstractDependencyListener {
         allClassesNode.setTag("JavaScriptBody:global");
     }
 
-    private static class OneDirectionalConnection implements DependencyConsumer {
+    public String[] getClassesPassedToJavaScript() {
+        return allClassesNode.getTypes();
+    }
+
+    static class OneDirectionalConnection implements DependencyConsumer {
         private DependencyNode target;
-        public OneDirectionalConnection(DependencyNode target) {
+        OneDirectionalConnection(DependencyNode target) {
             this.target = target;
         }
         @Override public void consume(DependencyType type) {
@@ -71,14 +72,14 @@ public class JavaScriptBodyDependency extends AbstractDependencyListener {
 
     @Override
     public void methodReached(DependencyAgent agent, MethodDependency method, CallLocation location) {
-        Set<MethodReference> methodsToAchieve = achievedMethods.get(method.getReference());
-        if (methodsToAchieve != null) {
-            for (MethodReference methodToAchieve : methodsToAchieve) {
-                agent.linkMethod(methodToAchieve, location);
+        Set<MethodReference> methodsToReach = reachedMethods.get(method.getReference());
+        if (methodsToReach != null) {
+            for (MethodReference methodToReach : methodsToReach) {
+                agent.linkMethod(methodToReach, location);
             }
             return;
         }
-        achievedMethods.put(method.getReference(), new HashSet<MethodReference>());
+        reachedMethods.put(method.getReference(), new HashSet<>());
         if (method.isMissing()) {
             return;
         }
@@ -94,6 +95,15 @@ public class JavaScriptBodyDependency extends AbstractDependencyListener {
             }
             for (int i = 0; i < method.getParameterCount(); ++i) {
                 method.getVariable(i).connect(allClassesNode);
+                method.getVariable(i).addConsumer(type -> {
+                    if (agent.getClassSource().isSuperType("java.lang.Enum", type.getName()).orElse(false)) {
+                        MethodReference toStringMethod = new MethodReference(type.getName(), "toString",
+                                ValueType.parse(String.class));
+                        MethodDependency dependency = agent.linkMethod(toStringMethod, location);
+                        dependency.getVariable(0).propagate(type);
+                        dependency.use();
+                    }
+                });
                 allClassesNode.addConsumer(new OneDirectionalConnection(method.getVariable(i).getArrayItem()));
                 allClassesNode.addConsumer(new OneDirectionalConnection(method.getVariable(i).getArrayItem()
                         .getArrayItem()));
@@ -130,21 +140,101 @@ public class JavaScriptBodyDependency extends AbstractDependencyListener {
         agent.linkMethod(JavaScriptConvGenerator.valueOfLongMethod, location).use();
     }
 
-    private static MethodReader findMethod(ClassReaderSource classSource, String clsName, MethodDescriptor desc) {
-        while (clsName != null) {
-            ClassReader cls = classSource.get(clsName);
-            if (cls == null) {
-                return null;
-            }
-            for (MethodReader method : cls.getMethods()) {
-                if (method.getName().equals(desc.getName()) && sameParams(method.getDescriptor(), desc)) {
-                    return method;
-                }
-            }
-            clsName = cls.getParent();
+    class GeneratorJsCallback extends JsCallback {
+        private DependencyAgent agent;
+        private MethodDependency caller;
+        private CallLocation location;
+
+        GeneratorJsCallback(DependencyAgent agent, MethodDependency caller, CallLocation location) {
+            this.agent = agent;
+            this.caller = caller;
+            this.location = location;
         }
+
+        @Override
+        protected CharSequence callMethod(String ident, String fqn, String method, String params) {
+            MethodDescriptor desc = MethodDescriptor.parse(method + params + "V");
+            MethodReference methodRef = new MethodReference(fqn, desc);
+
+            MethodReader reader = findMethod(agent.getClassSource(), fqn, desc);
+            if (reader == null) {
+                agent.getDiagnostics().error(location, "Can't resolve method {{m0}}", methodRef);
+            }
+
+            methodRef = reader.getReference();
+            MethodDependency methodDep = agent.linkMethod(methodRef, location);
+            if (ident == null) {
+                reachedMethods.get(caller.getReference()).add(methodRef);
+                methodDep.use();
+                for (int i = 0; i < methodDep.getParameterCount(); ++i) {
+                    allClassesNode.connect(methodDep.getVariable(i));
+                }
+            } else {
+                allClassesNode.addConsumer(new VirtualCallbackConsumer(agent, methodRef, location));
+            }
+
+            return "";
+        }
+    }
+
+    class VirtualCallbackConsumer implements DependencyConsumer {
+        private DependencyAgent agent;
+        private MethodReference superMethod;
+        private CallLocation location;
+
+        VirtualCallbackConsumer(DependencyAgent agent, MethodReference superMethod, CallLocation location) {
+            this.agent = agent;
+            this.superMethod = superMethod;
+            this.location = location;
+        }
+
+        @Override
+        public void consume(DependencyType type) {
+            if (!agent.getClassSource().isSuperType(superMethod.getClassName(), type.getName()).orElse(false)) {
+                return;
+            }
+            MethodReader method = agent.getClassSource().resolveImplementation(new MethodReference(
+                    type.getName(), superMethod.getDescriptor()));
+            if (method == null) {
+                return;
+            }
+            MethodDependency methodDep = agent.linkMethod(method.getReference(), location);
+            methodDep.use();
+            for (int i = 0; i < methodDep.getParameterCount(); ++i) {
+                allClassesNode.connect(methodDep.getVariable(i));
+            }
+        }
+    }
+
+    static MethodReader findMethod(ClassReaderSource classSource, String clsName, MethodDescriptor desc) {
+        ClassReader cls = classSource.get(clsName);
+        if (cls == null) {
+            return null;
+        }
+
+        for (MethodReader method : cls.getMethods()) {
+            if (method.getName().equals(desc.getName()) && sameParams(method.getDescriptor(), desc)) {
+                return method;
+            }
+        }
+
+        if (cls.getParent() != null) {
+            MethodReader result = findMethod(classSource, cls.getParent(), desc);
+            if (result != null) {
+                return result;
+            }
+        }
+
+        for (String iface : cls.getInterfaces()) {
+            MethodReader result = findMethod(classSource, iface, desc);
+            if (result != null) {
+                return result;
+            }
+        }
+
         return null;
     }
+
     private static boolean sameParams(MethodDescriptor a, MethodDescriptor b) {
         if (a.parameterCount() != b.parameterCount()) {
             return false;
@@ -155,58 +245,5 @@ public class JavaScriptBodyDependency extends AbstractDependencyListener {
             }
         }
         return true;
-    }
-
-    private class GeneratorJsCallback extends JsCallback {
-        private DependencyAgent agent;
-        private MethodDependency caller;
-        private CallLocation location;
-        public GeneratorJsCallback(DependencyAgent agent, MethodDependency caller, CallLocation location) {
-            this.agent = agent;
-            this.caller = caller;
-            this.location = location;
-        }
-        @Override protected CharSequence callMethod(String ident, String fqn, String method, String params) {
-            MethodDescriptor desc = MethodDescriptor.parse(method + params + "V");
-            MethodReader reader = findMethod(agent.getClassSource(), fqn, desc);
-            MethodReference ref = reader != null ? reader.getReference() : new MethodReference(fqn, desc);
-            MethodDependency methodDep = agent.linkMethod(ref, location);
-            achievedMethods.get(caller.getReference()).add(ref);
-            if (!methodDep.isMissing()) {
-                if (reader.hasModifier(ElementModifier.STATIC) || reader.hasModifier(ElementModifier.FINAL)) {
-                    methodDep.use();
-                    for (int i = 0; i < methodDep.getParameterCount(); ++i) {
-                        allClassesNode.connect(methodDep.getVariable(i));
-                    }
-                } else {
-                    allClassesNode.addConsumer(new VirtualCallbackConsumer(agent, reader, caller));
-                }
-            }
-            return "";
-        }
-    }
-
-    private class VirtualCallbackConsumer implements DependencyConsumer {
-        private DependencyAgent agent;
-        private MethodReader superMethod;
-        private ClassReader superClass;
-        private MethodDependency caller;
-        public VirtualCallbackConsumer(DependencyAgent agent, MethodReader superMethod, MethodDependency caller) {
-            this.agent = agent;
-            this.superMethod = superMethod;
-            this.caller = caller;
-            this.superClass = agent.getClassSource().get(superMethod.getOwnerName());
-        }
-        @Override public void consume(DependencyType type) {
-            if (!agent.getClassSource().isSuperType(superClass.getName(), type.getName()).orElse(false)) {
-                return;
-            }
-            MethodReference methodRef = new MethodReference(type.getName(), superMethod.getDescriptor());
-            MethodDependency method = agent.linkMethod(methodRef, new CallLocation(caller.getReference()));
-            method.use();
-            for (int i = 0; i < method.getParameterCount(); ++i) {
-                allClassesNode.connect(method.getVariable(i));
-            }
-        }
     }
 }

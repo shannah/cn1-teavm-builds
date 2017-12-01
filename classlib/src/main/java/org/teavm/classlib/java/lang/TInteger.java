@@ -172,8 +172,12 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
     }
 
     public static TInteger getInteger(TString nm, TInteger val) {
-        TString result = TSystem.getProperty(nm);
-        return result != null ? TInteger.valueOf(result) : val;
+        TString result = nm != null ? TString.wrap(TSystem.getProperty(nm.toString())) : null;
+        try {
+            return result != null ? TInteger.valueOf(result) : val;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     public static TInteger decode(TString nm) throws TNumberFormatException {
@@ -244,9 +248,7 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
         return compare(value, other.value);
     }
 
-    public static int compare(int x, int y) {
-        return x > y ? 1 : x < y ? -1 : 0;
-    }
+    public static native int compare(int x, int y);
 
     public static int numberOfLeadingZeros(int i) {
         if (i == 0) {

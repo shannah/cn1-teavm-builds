@@ -27,10 +27,6 @@ import org.teavm.vm.spi.Requires;
 import org.teavm.vm.spi.TeaVMHost;
 import org.teavm.vm.spi.TeaVMPlugin;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class PluginLoaderTest {
     @Test
     public void loadsPlugins() {
@@ -60,7 +56,7 @@ public class PluginLoaderTest {
     }
 
     private List<String> order(Class<?>... classes) {
-        return TeaVMPluginLoader.orderPlugins(PluginLoaderTest.class.getClassLoader(),
+        return TeaVMPluginReader.orderPlugins(PluginLoaderTest.class.getClassLoader(),
                 Arrays.stream(classes).map(Class::getName).collect(Collectors.toSet()));
     }
 

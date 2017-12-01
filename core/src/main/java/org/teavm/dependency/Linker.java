@@ -26,13 +26,14 @@ import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
 import org.teavm.model.instructions.GetFieldInstruction;
 import org.teavm.model.instructions.InitClassInstruction;
+import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.instructions.PutFieldInstruction;
 
 public class Linker {
     public void link(DependencyInfo dependency, ClassHolder cls) {
         for (MethodHolder method : cls.getMethods().toArray(new MethodHolder[0])) {
-            MethodReference methodRef = new MethodReference(cls.getName(), method.getDescriptor());
+            MethodReference methodRef = method.getReference();
             MethodDependencyInfo methodDep = dependency.getMethod(methodRef);
             if (methodDep == null) {
                 cls.removeMethod(method);
@@ -58,9 +59,11 @@ public class Linker {
             for (Instruction insn : block) {
                 if (insn instanceof InvokeInstruction) {
                     InvokeInstruction invoke = (InvokeInstruction) insn;
-                    MethodDependencyInfo linkedMethod = dependency.getMethodImplementation(invoke.getMethod());
-                    if (linkedMethod != null) {
-                        invoke.setMethod(linkedMethod.getReference());
+                    if (invoke.getType() == InvocationType.SPECIAL) {
+                        MethodDependencyInfo linkedMethod = dependency.getMethodImplementation(invoke.getMethod());
+                        if (linkedMethod != null) {
+                            invoke.setMethod(linkedMethod.getReference());
+                        }
                     }
                 } else if (insn instanceof GetFieldInstruction) {
                     GetFieldInstruction getField = (GetFieldInstruction) insn;

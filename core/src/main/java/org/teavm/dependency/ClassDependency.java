@@ -18,17 +18,13 @@ package org.teavm.dependency;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassReader;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ClassDependency implements ClassDependencyInfo {
-    private DependencyChecker checker;
+    private DependencyAnalyzer analyzer;
     private String className;
     private ClassReader classReader;
 
-    ClassDependency(DependencyChecker checker, String className, ClassReader classReader) {
-        this.checker = checker;
+    ClassDependency(DependencyAnalyzer analyzer, String className, ClassReader classReader) {
+        this.analyzer = analyzer;
         this.className = className;
         this.classReader = classReader;
     }
@@ -49,7 +45,7 @@ public class ClassDependency implements ClassDependencyInfo {
 
     public void initClass(CallLocation callLocation) {
         if (!isMissing()) {
-            checker.initClass(this, callLocation);
+            analyzer.initClass(this, callLocation);
         }
     }
 }

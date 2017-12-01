@@ -15,7 +15,9 @@
  */
 package org.teavm.classlib.java.lang;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
@@ -126,5 +128,26 @@ public class IntegerTest {
         assertEquals(0xFF000000, Integer.reverse(0x000000FF));
         assertEquals(0xFFFFFFFF, Integer.reverse(0xFFFFFFFF));
         assertEquals(0xF63BA000, Integer.reverse(0x5DC6F));
+    }
+
+    @Test
+    public void compares() {
+        assertTrue(Integer.compare(10, 5) > 0);
+        assertTrue(Integer.compare(5, 10) < 0);
+        assertTrue(Integer.compare(5, 5) == 0);
+        assertTrue(Integer.compare(Integer.MAX_VALUE, Integer.MIN_VALUE) > 0);
+        assertTrue(Integer.compare(Integer.MIN_VALUE, Integer.MAX_VALUE) < 0);
+    }
+
+
+    @Test
+    public void getFromSystemProperty() {
+        System.setProperty("test.foo", "23");
+        System.setProperty("test.bar", "q");
+
+        assertEquals((Object) 23, Integer.getInteger("test.foo"));
+        assertNull(Integer.getInteger("test.bar"));
+        assertNull(Integer.getInteger("test.baz"));
+        assertNull(Integer.getInteger(null));
     }
 }

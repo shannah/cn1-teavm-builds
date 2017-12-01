@@ -15,10 +15,6 @@
  */
 package org.teavm.classlib.java.nio;
 
-/**
- *
- * @author Alexey Andreev
- */
 abstract class TLongBufferImpl extends TLongBuffer {
     public TLongBufferImpl(int capacity, int position, int limit) {
         super(capacity, position, limit);
@@ -86,14 +82,14 @@ abstract class TLongBufferImpl extends TLongBuffer {
         if (isReadOnly()) {
             throw new TReadOnlyBufferException();
         }
+        int sz = remaining();
         if (position > 0) {
-            int sz = remaining();
             int src = position;
             for (int i = 0; i < sz; ++i) {
                 putElement(i, getElement(src++));
             }
-            position = sz;
         }
+        position = sz;
         limit = capacity;
         mark = -1;
         return this;

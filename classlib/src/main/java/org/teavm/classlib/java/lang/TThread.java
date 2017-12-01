@@ -20,10 +20,6 @@ import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformRunnable;
 import org.teavm.platform.async.AsyncCallback;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TThread extends TObject implements TRunnable {
     private static TThread mainThread = new TThread(TString.wrap("main"));
     private static TThread currentThread = mainThread;
@@ -38,6 +34,7 @@ public class TThread extends TObject implements TRunnable {
     private TThreadInterruptHandler interruptHandler;
 
     private TString name;
+    private boolean alive = true;
     TRunnable target;
 
     public TThread() {
@@ -65,6 +62,10 @@ public class TThread extends TObject implements TRunnable {
                 setCurrentThread(TThread.this);
                 TThread.this.run();
             } finally {
+                synchronized (finishedLock) {
+                    finishedLock.notifyAll();
+                }
+                alive = false;
                 activeCount--;
                 setCurrentThread(mainThread);
             }
@@ -86,9 +87,6 @@ public class TThread extends TObject implements TRunnable {
     public void run() {
         if (target != null) {
             target.run();
-        }
-        synchronized (finishedLock) {
-            finishedLock.notifyAll();
         }
     }
 
@@ -155,6 +153,10 @@ public class TThread extends TObject implements TRunnable {
 
     public boolean isInterrupted() {
         return interruptedFlag;
+    }
+
+    public boolean isAlive() {
+        return alive;
     }
 
     public static int activeCount() {

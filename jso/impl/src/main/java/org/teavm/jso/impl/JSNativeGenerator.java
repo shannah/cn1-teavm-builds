@@ -31,6 +31,7 @@ import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.MethodDependency;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassReader;
+import org.teavm.model.ElementModifier;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
@@ -42,6 +43,9 @@ public class JSNativeGenerator implements Injector, DependencyPlugin, Generator 
         switch (methodRef.getName()) {
             case "function":
                 writeFunction(context, writer);
+                break;
+            case "functionAsObject":
+                writeFunctionAsObject(context, writer);
                 break;
         }
     }
@@ -66,6 +70,18 @@ public class JSNativeGenerator implements Injector, DependencyPlugin, Generator 
 
         writer.outdent().append('}').softNewLine();
         writer.append("return ").append(thisName).append("[name]();").softNewLine();
+    }
+
+    private void writeFunctionAsObject(GeneratorContext context, SourceWriter writer) throws IOException {
+        String thisName = context.getParameterName(1);
+        String methodName = context.getParameterName(2);
+
+        writer.append("if").ws().append("(").append(thisName).ws().append("===").ws().append("null)").ws()
+                .append("return null;").softNewLine();
+        writer.append("var result").ws().append("=").ws().append("{};").softNewLine();
+        writer.append("result[").append(methodName).append("]").ws().append("=").ws().append(thisName)
+                .append(";").softNewLine();
+        writer.append("return result;").softNewLine();
     }
 
     @Override
@@ -142,9 +158,6 @@ public class JSNativeGenerator implements Injector, DependencyPlugin, Generator 
                     context.writeExpr(context.getArgument(0), context.getPrecedence());
                 }
                 break;
-            case "function":
-                generateFunction(context);
-                break;
             case "unwrapString":
                 writer.append("$rt_str(");
                 context.writeExpr(context.getArgument(0), Precedence.min());
@@ -176,7 +189,7 @@ public class JSNativeGenerator implements Injector, DependencyPlugin, Generator 
             case "instantiate":
             case "function":
                 for (int i = 0; i < method.getReference().parameterCount(); ++i) {
-                    method.getVariable(i).addConsumer(type -> achieveFunctorMethods(agent, type.getName(), method));
+                    method.getVariable(i).addConsumer(type -> reachFunctorMethods(agent, type.getName(), method));
                 }
                 break;
             case "unwrapString":
@@ -185,29 +198,20 @@ public class JSNativeGenerator implements Injector, DependencyPlugin, Generator 
         }
     }
 
-    private void achieveFunctorMethods(DependencyAgent agent, String type, MethodDependency caller) {
+    private void reachFunctorMethods(DependencyAgent agent, String type, MethodDependency caller) {
         if (caller.isMissing()) {
             return;
         }
         ClassReader cls = agent.getClassSource().get(type);
         if (cls != null) {
             for (MethodReader method : cls.getMethods()) {
-                agent.linkMethod(method.getReference(), null).use();
+                if (!method.hasModifier(ElementModifier.STATIC)) {
+                    agent.linkMethod(method.getReference(), null).use();
+                }
             }
         }
     }
 
-    private void generateFunction(InjectorContext context) throws IOException {
-        SourceWriter writer = context.getWriter();
-        writer.append("(function($instance,").ws().append("$property)").ws().append("{").ws()
-                .append("return function()").ws().append("{").indent().softNewLine();
-        writer.append("return $instance[$property].apply($instance,").ws().append("arguments);").softNewLine();
-        writer.outdent().append("};})(");
-        context.writeExpr(context.getArgument(0));
-        writer.append(",").ws();
-        context.writeExpr(context.getArgument(1));
-        writer.append(")");
-    }
 
     private void renderProperty(Expr property, InjectorContext context) throws IOException {
         SourceWriter writer = context.getWriter();

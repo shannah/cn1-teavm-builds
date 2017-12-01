@@ -15,42 +15,87 @@
  */
 package org.teavm.classlib.impl;
 
-import java.lang.invoke.CallSite;
-import java.lang.invoke.LambdaMetafactory;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
+import java.lang.reflect.Array;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.ServiceLoader;
+import org.teavm.backend.javascript.TeaVMJavaScriptHost;
+import org.teavm.classlib.ReflectionSupplier;
 import org.teavm.classlib.impl.lambda.LambdaMetafactorySubstitutor;
 import org.teavm.classlib.impl.unicode.CLDRReader;
 import org.teavm.classlib.java.lang.reflect.AnnotationDependencyListener;
-import org.teavm.backend.javascript.TeaVMJavaScriptHost;
+import org.teavm.interop.PlatformMarker;
 import org.teavm.model.MethodReference;
+import org.teavm.model.ValueType;
 import org.teavm.platform.PlatformClass;
+import org.teavm.vm.TeaVMPluginUtil;
 import org.teavm.vm.spi.TeaVMHost;
 import org.teavm.vm.spi.TeaVMPlugin;
 
 public class JCLPlugin implements TeaVMPlugin {
     @Override
     public void install(TeaVMHost host) {
-        ServiceLoaderSupport serviceLoaderSupp = new ServiceLoaderSupport(host.getClassLoader());
-        host.add(serviceLoaderSupp);
-        MethodReference loadServicesMethod = new MethodReference(ServiceLoader.class, "loadServices",
-                PlatformClass.class, Object[].class);
-        TeaVMJavaScriptHost jsExtension = host.getExtension(TeaVMJavaScriptHost.class);
-        if (jsExtension != null) {
-            jsExtension.add(loadServicesMethod, serviceLoaderSupp);
+        if (!isBootstrap()) {
+            ServiceLoaderSupport serviceLoaderSupp = new ServiceLoaderSupport(host.getClassLoader());
+            host.add(serviceLoaderSupp);
+            MethodReference loadServicesMethod = new MethodReference(ServiceLoader.class, "loadServices",
+                    PlatformClass.class, Object[].class);
+            TeaVMJavaScriptHost jsExtension = host.getExtension(TeaVMJavaScriptHost.class);
+            if (jsExtension != null) {
+                jsExtension.add(loadServicesMethod, serviceLoaderSupp);
+            }
+
+            JavacSupport javacSupport = new JavacSupport();
+            host.add(javacSupport);
         }
 
-        JavacSupport javacSupport = new JavacSupport();
-        host.add(javacSupport);
+        if (!isBootstrap()) {
+            host.registerService(CLDRReader.class, CLDRReader.getInstance(host.getProperties(), host.getClassLoader()));
 
-        host.registerService(CLDRReader.class, new CLDRReader(host.getProperties(), host.getClassLoader()));
+            host.add(new ClassForNameTransformer());
+        }
 
         host.add(new AnnotationDependencyListener());
-        host.add(new MethodReference(LambdaMetafactory.class, "metafactory", MethodHandles.Lookup.class,
-                String.class, MethodType.class, MethodType.class, MethodHandle.class, MethodType.class,
-                CallSite.class), new LambdaMetafactorySubstitutor());
-        host.add(new ScalaHacks());
+
+        LambdaMetafactorySubstitutor lms = new LambdaMetafactorySubstitutor();
+        host.add(new MethodReference("java.lang.invoke.LambdaMetafactory", "metafactory",
+                ValueType.object("java.lang.invoke.MethodHandles$Lookup"), ValueType.object("java.lang.String"),
+                ValueType.object("java.lang.invoke.MethodType"), ValueType.object("java.lang.invoke.MethodType"),
+                ValueType.object("java.lang.invoke.MethodHandle"), ValueType.object("java.lang.invoke.MethodType"),
+                ValueType.object("java.lang.invoke.CallSite")), lms);
+        host.add(new MethodReference("java.lang.invoke.LambdaMetafactory", "altMetafactory",
+                ValueType.object("java.lang.invoke.MethodHandles$Lookup"),
+                ValueType.object("java.lang.String"), ValueType.object("java.lang.invoke.MethodType"),
+                ValueType.arrayOf(ValueType.object("java.lang.Object")),
+                ValueType.object("java.lang.invoke.CallSite")), lms);
+
+        if (!isBootstrap()) {
+            host.add(new ScalaHacks());
+        }
+
+        host.add(new NumericClassTransformer());
+
+        if (!isBootstrap()) {
+            List<ReflectionSupplier> reflectionSuppliers = new ArrayList<>();
+            for (ReflectionSupplier supplier : ServiceLoader.load(ReflectionSupplier.class, host.getClassLoader())) {
+                reflectionSuppliers.add(supplier);
+            }
+            ReflectionDependencyListener reflection = new ReflectionDependencyListener(reflectionSuppliers);
+            host.registerService(ReflectionDependencyListener.class, reflection);
+            host.add(reflection);
+
+            host.add(new PlatformMarkerSupport());
+        }
+
+        TeaVMPluginUtil.handleNatives(host, Class.class);
+        TeaVMPluginUtil.handleNatives(host, ClassLoader.class);
+        TeaVMPluginUtil.handleNatives(host, System.class);
+        TeaVMPluginUtil.handleNatives(host, Array.class);
+        TeaVMPluginUtil.handleNatives(host, Math.class);
+    }
+
+    @PlatformMarker
+    private static boolean isBootstrap() {
+        return false;
     }
 }

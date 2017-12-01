@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 "use strict";
+var $rt_global = this;
 var $rt_lastObjectId = 1;
 function $rt_nextId() {
     var current = $rt_lastObjectId;
@@ -123,7 +124,7 @@ function $rt_arraycls(cls) {
     if (result === null) {
         var arraycls = function(data) {
             this.data = data;
-            this.$id = 0;
+            this.$id$ = 0;
         };
         arraycls.prototype = new ($rt_objcls())();
         arraycls.prototype.constructor = arraycls;
@@ -138,6 +139,18 @@ function $rt_arraycls(cls) {
             str += "]";
             return str;
         };
+        $rt_setCloneMethod(arraycls.prototype, function () {
+            var dataCopy;
+            if ('slice' in this.data) {
+                dataCopy = this.data.slice();
+            } else {
+                dataCopy = new this.data.constructor(this.data.length);
+                for (var i = 0; i < dataCopy.length; ++i) {
+                    dataCopy[i] = this.data[i];
+                }
+            }
+            return new arraycls(dataCopy);
+        });
         var name = "[" + cls.$meta.binaryName;
         arraycls.$meta = { item : cls, supertypes : [$rt_objcls()], primitive : false, superclass : $rt_objcls(),
                 name : name, binaryName : name, enum : false };
@@ -417,7 +430,7 @@ function $rt_putStderr(ch) {
     }
 }
 function $rt_metadata(data) {
-    for (var i = 0; i < data.length; i += 7) {
+    for (var i = 0; i < data.length; i += 8) {
         var cls = data[i];
         cls.$meta = {};
         var m = cls.$meta;
@@ -433,15 +446,19 @@ function $rt_metadata(data) {
             cls.prototype = {};
         }
         var flags = data[i + 4];
-        m.enum = (flags & 1) != 0;
+        m.enum = (flags & 16) != 0;
+        m.flags = flags;
         m.primitive = false;
         m.item = null;
         cls.prototype.constructor = cls;
         cls.classObject = null;
-        var clinit = data[i + 5];
+
+        m.accessLevel = data[i + 5];
+
+        var clinit = data[i + 6];
         cls.$clinit = clinit !== 0 ? clinit : function() {};
 
-        var virtualMethods = data[i + 6];
+        var virtualMethods = data[i + 7];
         for (var j = 0; j < virtualMethods.length; j += 2) {
             var name = virtualMethods[j];
             var func = virtualMethods[j + 1];

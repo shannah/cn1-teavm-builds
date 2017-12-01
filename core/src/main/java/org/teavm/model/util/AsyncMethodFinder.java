@@ -90,7 +90,7 @@ public class AsyncMethodFinder {
             }
         }
         for (MethodReference method : asyncMethods) {
-            addOverridenToFamily(method);
+            addOverriddenToFamily(method);
         }
         for (String clsName : classSource.getClassNames()) {
             ClassReader cls = classSource.get(clsName);
@@ -159,12 +159,12 @@ public class AsyncMethodFinder {
                 || method.getAnnotations().get(InjectedBy.class.getName()) != null) {
             if (method.getAnnotations().get(SuppressSyncErrors.class.getName()) == null) {
                 diagnostics.error(new CallLocation(methodRef), "Method {{m0}} is claimed to be "
-                        + "synchronous, but it is has invocations of asynchronous methods:" 
+                        + "synchronous, but it is has invocations of asynchronous methods:"
                         + stack.toString(), methodRef);
                 return;
             } else {
                 diagnostics.warning(new CallLocation(methodRef), "Error as Warning because "
-                        + " Method {{m0}} has @SuppressSyncErrors annoation. Method {{m0}} "
+                        + " Method {{m0}} has @SuppressSyncErrors annotation. Method {{m0}} "
                         + "is claimed to be synchronous, but it is has invocations of "
                         + "asynchronous methods:" + stack.toString(), methodRef);
             }
@@ -175,11 +175,11 @@ public class AsyncMethodFinder {
         }
     }
 
-    private class CallStack {
+    static class CallStack {
         MethodReference method;
         CallStack next;
 
-        public CallStack(MethodReference method, CallStack next) {
+        CallStack(MethodReference method, CallStack next) {
             this.method = method;
             this.next = next;
         }
@@ -196,14 +196,14 @@ public class AsyncMethodFinder {
         }
     }
 
-    private void addOverridenToFamily(MethodReference methodRef) {
+    private void addOverriddenToFamily(MethodReference methodRef) {
         asyncFamilyMethods.put(methodRef, true);
         ClassReader cls = classSource.get(methodRef.getClassName());
         if (cls == null) {
             return;
         }
-        for (MethodReference overridenMethod : findOverriddenMethods(cls, methodRef)) {
-            addOverridenToFamily(overridenMethod);
+        for (MethodReference overriddenMethod : findOverriddenMethods(cls, methodRef)) {
+            addOverriddenToFamily(overriddenMethod);
         }
     }
 
@@ -225,8 +225,8 @@ public class AsyncMethodFinder {
         if (cls == null) {
             return false;
         }
-        for (MethodReference overridenMethod : findOverriddenMethods(cls, methodRef)) {
-            if (addToFamily(overridenMethod)) {
+        for (MethodReference overriddenMethod : findOverriddenMethods(cls, methodRef)) {
+            if (addToFamily(overriddenMethod)) {
                 return true;
             }
         }
@@ -235,17 +235,17 @@ public class AsyncMethodFinder {
 
     private Set<MethodReference> findOverriddenMethods(ClassReader cls, MethodReference methodRef) {
         List<String> parents = new ArrayList<>();
-        if (cls.getParent() != null && !cls.getParent().equals(cls.getName())) {
+        if (cls.getParent() != null) {
             parents.add(cls.getParent());
         }
         parents.addAll(cls.getInterfaces());
 
         Set<MethodReference> visited = new HashSet<>();
-        Set<MethodReference> overriden = new HashSet<>();
+        Set<MethodReference> overridden = new HashSet<>();
         for (String parent : parents) {
-            findOverriddenMethods(new MethodReference(parent, methodRef.getDescriptor()), overriden, visited);
+            findOverriddenMethods(new MethodReference(parent, methodRef.getDescriptor()), overridden, visited);
         }
-        return overriden;
+        return overridden;
     }
 
     private void findOverriddenMethods(MethodReference methodRef, Set<MethodReference> result,
@@ -266,7 +266,7 @@ public class AsyncMethodFinder {
                 result.add(methodRef);
             }
         } else {
-            if (cls.getParent() != null && !cls.getParent().equals(cls.getName())) {
+            if (cls.getParent() != null) {
                 findOverriddenMethods(new MethodReference(cls.getParent(), methodRef.getDescriptor()), result, visited);
             }
             for (String iface : cls.getInterfaces()) {

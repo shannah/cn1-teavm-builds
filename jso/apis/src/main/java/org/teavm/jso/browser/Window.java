@@ -25,6 +25,8 @@ import org.teavm.jso.dom.html.HTMLElement;
 import org.teavm.jso.dom.html.HTMLIFrameElement;
 
 public abstract class Window implements JSObject, WindowEventTarget, StorageProvider, JSArrayReader<HTMLIFrameElement> {
+    private static Window cachedInstance;
+
     private Window() {
     }
 
@@ -82,10 +84,10 @@ public abstract class Window implements JSObject, WindowEventTarget, StorageProv
     @JSBody(params = "message", script = "alert(message);")
     public static native void alert(String message);
 
-    @JSBody(params = "message", script = "confirm(message);")
+    @JSBody(params = "message", script = "return confirm(message);")
     public static native boolean confirm(JSObject message);
 
-    @JSBody(params = "message", script = "confirm(message);")
+    @JSBody(params = "message", script = "return confirm(message);")
     public static native boolean confirm(String message);
 
     public static String prompt(String message) {
@@ -149,6 +151,8 @@ public abstract class Window implements JSObject, WindowEventTarget, StorageProv
 
     public abstract void stop();
 
+    public abstract void postMessage(JSObject message);
+
     public abstract void postMessage(JSObject message, String targetOrigin);
 
     public abstract void postMessage(JSObject message, String targetOrigin, JSArrayReader<JSObject> transfer);
@@ -159,6 +163,9 @@ public abstract class Window implements JSObject, WindowEventTarget, StorageProv
 
     @JSBody(script = "return window;")
     public static native Window current();
+
+    @JSBody(script = "return self;")
+    public static native Window worker();
 
     @JSBody(params = "uri", script = "return encodeURI(uri);")
     public static native String encodeURI(String uri);

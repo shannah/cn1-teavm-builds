@@ -24,7 +24,6 @@ import java.util.HashMap;
 import java.util.Map;
 import net.java.html.BrwsrCtx;
 import net.java.html.js.JavaScriptBody;
-import org.netbeans.html.boot.spi.Fn;
 import org.netbeans.html.context.spi.Contexts;
 import org.netbeans.html.json.spi.JSONCall;
 import org.netbeans.html.json.spi.Technology;
@@ -38,15 +37,12 @@ import org.teavm.jso.JSObject;
 import org.teavm.jso.browser.Window;
 import org.teavm.jso.dom.html.HTMLDocument;
 import org.teavm.jso.dom.html.HTMLElement;
-import org.testng.Assert;
 
 /**
  *
  * @author Jaroslav Tulach <jtulach@netbeans.org>
  */
 public final class KnockoutFXTest extends KnockoutTCK implements Transfer, WSTransfer<WSImpl> {
-    private static Class<?> browserClass;
-    private static Fn.Presenter browserContext;
     private KO4J ko4j = new KO4J();
     private final Map<String, Request> urlMap = new HashMap<>();
     private final Map<String, WSImpl> wsUrlMap = new HashMap<>();
@@ -54,27 +50,8 @@ public final class KnockoutFXTest extends KnockoutTCK implements Transfer, WSTra
     public KnockoutFXTest() {
     }
 
-    static ClassLoader getClassLoader() throws InterruptedException {
-        while (browserClass == null) {
-            KnockoutFXTest.class.wait();
-        }
-        return browserClass.getClassLoader();
-    }
-
-    public static void initialized(Class<?> browserCls) throws Exception {
-        browserClass = browserCls;
-        browserContext = Fn.activePresenter();
-        KnockoutFXTest.class.notifyAll();
-    }
-
-    public static void initialized() throws Exception {
-        Assert.assertSame(
-            KnockoutFXTest.class.getClassLoader(),
-            ClassLoader.getSystemClassLoader(),
-            "No special classloaders"
-        );
-        KnockoutFXTest.initialized(KnockoutFXTest.class);
-        browserContext = Fn.activePresenter();
+    static Class<?>[] allTestClasses() {
+        return testClasses();
     }
 
     @Override
@@ -102,9 +79,9 @@ public final class KnockoutFXTest extends KnockoutTCK implements Transfer, WSTra
     private static native void setProperty(Object json, String key, Object value);
 
     @Override
-    @JavaScriptBody(args = { "s", "args" }, body =
-        "var f = new Function(s); " +
-        "return f.apply(null, args);"
+    @JavaScriptBody(args = { "s", "args" }, body = ""
+        + "var f = new Function(s);"
+        + "return f.apply(null, args);"
     )
     public native Object executeScript(String s, Object[] args);
 

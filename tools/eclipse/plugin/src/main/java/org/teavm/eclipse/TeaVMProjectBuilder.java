@@ -67,8 +67,8 @@ import org.teavm.diagnostics.ProblemTextConsumer;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassHolderTransformer;
 import org.teavm.model.FieldReference;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodReference;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.tooling.ClassAlias;
 import org.teavm.tooling.RuntimeCopyOperation;
@@ -78,10 +78,6 @@ import org.teavm.tooling.sources.DirectorySourceFileProvider;
 import org.teavm.tooling.sources.JarSourceFileProvider;
 import org.teavm.tooling.sources.SourceFileProvider;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
     private static final int TICKS_PER_PROFILE = 10000;
     private URL[] classPath;
@@ -355,7 +351,7 @@ public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
         return wasPut;
     }
 
-    private boolean putMarker(IResource resource, InstructionLocation location, MethodReference method,
+    private boolean putMarker(IResource resource, TextLocation location, MethodReference method,
             String text, TeaVMProfile profile, boolean force) throws CoreException {
         Integer lineNumber = location != null ? location.getLine() : null;
         if (lineNumber == null) {
@@ -450,7 +446,7 @@ public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
             @Override public void appendMethod(MethodReference method) {
                 sb.append(getFullMethodName(method));
             }
-            @Override public void appendLocation(InstructionLocation location) {
+            @Override public void appendLocation(TextLocation location) {
                 sb.append(location);
             }
             @Override public void appendField(FieldReference field) {

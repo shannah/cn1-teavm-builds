@@ -17,10 +17,6 @@ package org.teavm.jso.dom.xml;
 
 import org.teavm.jso.JSProperty;
 
-/**
- *
- * @author Alexey Andreev
- */
 public interface Document extends Node {
     @JSProperty
     DocumentType getDoctype();
@@ -58,4 +54,8 @@ public interface Document extends Node {
     NodeList<Element> getElementsByTagNameNS(String namespaceURI, String localName);
 
     Element getElementById(String elementId);
+
+    Element querySelector(String selectors);
+
+    NodeList<? extends Element> querySelectorAll(String selectors);
 }

@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.lang;
 
+import java.util.Locale;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.io.TUnsupportedEncodingException;
 import org.teavm.classlib.java.nio.TByteBuffer;
@@ -23,14 +24,12 @@ import org.teavm.classlib.java.nio.charset.TCharset;
 import org.teavm.classlib.java.nio.charset.impl.TUTF8Charset;
 import org.teavm.classlib.java.util.TArrays;
 import org.teavm.classlib.java.util.TComparator;
+import org.teavm.classlib.java.util.TFormatter;
 import org.teavm.classlib.java.util.THashMap;
+import org.teavm.classlib.java.util.TLocale;
 import org.teavm.classlib.java.util.TMap;
 import org.teavm.classlib.java.util.regex.TPattern;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TString extends TObject implements TSerializable, TComparable<TString>, TCharSequence {
     public static final TComparator<TString> CASE_INSENSITIVE_ORDER = (o1, o2) -> o1.compareToIgnoreCase(o2);
     private char[] characters;
@@ -599,6 +598,10 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
         return new TString(codePoints, 0, codePointCount);
     }
 
+    public TString toLowerCase(TLocale locale) {
+        return toLowerCase();
+    }
+
     public TString toUpperCase() {
         if (isEmpty()) {
             return this;
@@ -616,6 +619,10 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
             }
         }
         return new TString(codePoints, 0, codePointCount);
+    }
+
+    public TString toUpperCase(TLocale locale) {
+        return toUpperCase();
     }
 
     public TString intern() {
@@ -645,5 +652,13 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
 
     public String replaceFirst(String regex, String replacement) {
         return TPattern.compile(regex).matcher(toString()).replaceFirst(replacement);
+    }
+
+    public static String format(String format, Object... args) {
+        return new TFormatter().format(format, args).toString();
+    }
+
+    public static String format(Locale l, String format, Object... args) {
+        return new TFormatter(l).format(format, args).toString();
     }
 }

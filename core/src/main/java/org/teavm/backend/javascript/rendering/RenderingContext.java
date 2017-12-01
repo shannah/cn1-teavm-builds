@@ -30,6 +30,7 @@ import org.teavm.backend.javascript.spi.InjectedBy;
 import org.teavm.backend.javascript.spi.Injector;
 import org.teavm.common.ServiceRepository;
 import org.teavm.debugging.information.DebugInformationEmitter;
+import org.teavm.interop.PlatformMarker;
 import org.teavm.model.AnnotationReader;
 import org.teavm.model.ClassReader;
 import org.teavm.model.ListableClassReaderSource;
@@ -142,7 +143,7 @@ public class RenderingContext {
         } else if (cst instanceof String) {
             String string = (String) cst;
             int index = lookupString(string);
-            return "$rt_s(" + index + ")";
+            return naming.getNameForFunction("$rt_s") + "(" + index + ")";
         } else if (cst instanceof Long) {
             long value = (Long) cst;
             if (value == 0) {
@@ -154,6 +155,8 @@ public class RenderingContext {
             }
         } else if (cst instanceof Character) {
             return Integer.toString((Character) cst);
+        } else if (cst instanceof Boolean) {
+            return (Boolean) cst ? "1" : "0";
         } else {
             return cst.toString();
         }
@@ -243,20 +246,27 @@ public class RenderingContext {
         InjectorHolder holder = injectorMap.get(ref);
         if (holder == null) {
             holder = new InjectorHolder(null);
-            ClassReader cls = classSource.get(ref.getClassName());
-            if (cls != null) {
-                MethodReader method = cls.getMethod(ref.getDescriptor());
-                if (method != null) {
-                    AnnotationReader injectedByAnnot = method.getAnnotations().get(InjectedBy.class.getName());
-                    if (injectedByAnnot != null) {
-                        ValueType type = injectedByAnnot.getValue("value").getJavaClass();
-                        holder = new InjectorHolder(instantiateInjector(((ValueType.Object) type).getClassName()));
+            if (!isBootstrap()) {
+                ClassReader cls = classSource.get(ref.getClassName());
+                if (cls != null) {
+                    MethodReader method = cls.getMethod(ref.getDescriptor());
+                    if (method != null) {
+                        AnnotationReader injectedByAnnot = method.getAnnotations().get(InjectedBy.class.getName());
+                        if (injectedByAnnot != null) {
+                            ValueType type = injectedByAnnot.getValue("value").getJavaClass();
+                            holder = new InjectorHolder(instantiateInjector(((ValueType.Object) type).getClassName()));
+                        }
                     }
                 }
             }
             injectorMap.put(ref, holder);
         }
         return holder.injector;
+    }
+
+    @PlatformMarker
+    private static boolean isBootstrap() {
+        return false;
     }
 
     private Injector instantiateInjector(String type) {

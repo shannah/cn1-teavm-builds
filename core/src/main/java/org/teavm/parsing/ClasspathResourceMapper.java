@@ -25,10 +25,6 @@ import org.teavm.common.CachedMapper;
 import org.teavm.common.Mapper;
 import org.teavm.model.ClassHolder;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ClasspathResourceMapper implements Mapper<String, ClassHolder>, ClassDateProvider {
     private static final String PACKAGE_PREFIX = "packagePrefix.";
     private static final String CLASS_PREFIX = "classPrefix.";
@@ -64,6 +60,14 @@ public class ClasspathResourceMapper implements Mapper<String, ClassHolder>, Cla
         }
         renamer = new ClassRefsRenamer(new CachedMapper<>(classNameMapper));
         this.classLoader = classLoader;
+    }
+
+    public ClasspathResourceMapper(Properties properties, Mapper<String, ClassHolder> innerMapper) {
+        this.innerMapper = innerMapper;
+        Map<String, Transformation> transformationMap = new HashMap<>();
+        loadProperties(properties, transformationMap);
+        transformations.addAll(transformationMap.values());
+        renamer = new ClassRefsRenamer(new CachedMapper<>(classNameMapper));
     }
 
     private void loadProperties(Properties properties, Map<String, Transformation> cache) {
@@ -162,6 +166,9 @@ public class ClasspathResourceMapper implements Mapper<String, ClassHolder>, Cla
     }
 
     private Date getOriginalModificationDate(String className) {
+        if (classLoader == null) {
+            return null;
+        }
         URL url = classLoader.getResource(className.replace('.', '/') + ".class");
         if (url == null) {
             return null;

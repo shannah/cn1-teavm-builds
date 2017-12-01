@@ -36,10 +36,6 @@ import org.teavm.debugging.Debugger;
 import org.teavm.debugging.DebuggerListener;
 import org.teavm.debugging.javascript.JavaScriptDebugger;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TeaVMDebugTarget extends PlatformObject implements IDebugTarget, IStep {
     ILaunch launch;
     Debugger teavmDebugger;
@@ -77,7 +73,7 @@ public class TeaVMDebugTarget extends PlatformObject implements IDebugTarget, IS
             }
 
             @Override
-            public void paused() {
+            public void paused(Breakpoint breakpoint) {
                 fireEvent(new DebugEvent(TeaVMDebugTarget.this, DebugEvent.SUSPEND));
                 thread.fireSuspendEvent(0);
                 thread.fireChangeEvent(0);

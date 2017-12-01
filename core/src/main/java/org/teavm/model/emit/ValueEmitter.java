@@ -19,7 +19,6 @@ import org.teavm.model.BasicBlock;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.FieldReference;
 import org.teavm.model.Incoming;
-import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Phi;
 import org.teavm.model.PrimitiveType;
@@ -52,10 +51,6 @@ import org.teavm.model.instructions.PutFieldInstruction;
 import org.teavm.model.instructions.RaiseInstruction;
 import org.teavm.model.instructions.UnwrapArrayInstruction;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ValueEmitter {
     ProgramEmitter pe;
     BasicBlock block;
@@ -441,10 +436,6 @@ public class ValueEmitter {
                 .orElse(true)) {
             throw new EmitException("Can't call " + method + " on non-compatible class " + type);
         }
-        MethodReader resolvedMethod = pe.classSource.resolve(method);
-        if (resolvedMethod != null) {
-            method = resolvedMethod.getReference();
-        }
 
         Variable result = null;
         if (method.getReturnType() != ValueType.VOID) {
@@ -723,7 +714,7 @@ public class ValueEmitter {
             return value;
         } else {
             if (this.type instanceof ValueType.Primitive) {
-                throw new EmitException("Can't convert " + this.type + " to " + type);
+                return boxPrimitive(type);
             }
             Variable result = pe.getProgram().createVariable();
             CastInstruction insn = new CastInstruction();
@@ -733,6 +724,25 @@ public class ValueEmitter {
             pe.addInstruction(insn);
             return pe.var(result, type);
         }
+    }
+
+    private ValueEmitter boxPrimitive(ValueType type) {
+        if (!(type instanceof ValueType.Object)) {
+            throw new EmitException("Can't convert " + this.type + " to " + type);
+        }
+        String targetClass = ((ValueType.Object) type).getClassName();
+
+        PrimitiveType primitiveType = ((ValueType.Primitive) this.type).getKind();
+        String boxClassName = getPrimitiveClassName(primitiveType);
+        ValueEmitter result = invokeValueOf(boxClassName);
+        if (!pe.getClassSource().isSuperType(targetClass, boxClassName).orElse(false)) {
+            throw new EmitException("Can't convert " + this.type + " to " + targetClass);
+        }
+        return result;
+    }
+
+    private ValueEmitter invokeValueOf(String cls) {
+        return pe.invoke(cls, "valueOf", ValueType.object(cls), this);
     }
 
     public ValueEmitter cast(NumericOperandType to) {
@@ -750,7 +760,7 @@ public class ValueEmitter {
 
         ValueEmitter result = pe.newVar(ValueType.INTEGER);
         CastNumberInstruction insn = new CastNumberInstruction(convertToNumeric(kind), to);
-        insn.setValue(variable);
+        insn.setValue(value.variable);
         insn.setReceiver(result.getVariable());
         pe.addInstruction(insn);
 

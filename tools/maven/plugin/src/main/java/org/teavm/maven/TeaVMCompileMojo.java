@@ -52,9 +52,6 @@ public class TeaVMCompileMojo extends AbstractTeaVMMojo {
     private String mainClass;
 
     @Parameter
-    private boolean mainPageIncluded;
-
-    @Parameter
     private ClassAlias[] classAliases;
 
     @Parameter
@@ -78,7 +75,7 @@ public class TeaVMCompileMojo extends AbstractTeaVMMojo {
     private TeaVMTool tool = new TeaVMTool();
 
     @Parameter
-    private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0xD;
+    private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0x1;
 
     @Override
     protected File getTargetDirectory() {
@@ -92,7 +89,6 @@ public class TeaVMCompileMojo extends AbstractTeaVMMojo {
         tool.setLog(new MavenTeaVMToolLog(log));
         try {
             tool.setMainClass(mainClass);
-            tool.setMainPageIncluded(mainPageIncluded);
             tool.setRuntime(runtime);
             if (!targetFileName.isEmpty()) {
                 tool.setTargetFileName(targetFileName);

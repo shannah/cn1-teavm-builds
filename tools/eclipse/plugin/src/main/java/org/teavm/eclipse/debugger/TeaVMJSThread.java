@@ -22,10 +22,6 @@ import org.teavm.debugging.javascript.JavaScriptCallFrame;
 import org.teavm.debugging.javascript.JavaScriptDebugger;
 import org.teavm.debugging.javascript.JavaScriptDebuggerListener;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TeaVMJSThread extends TeaVMThread {
     private JavaScriptDebugger jsDebugger;
 
@@ -43,7 +39,7 @@ public class TeaVMJSThread extends TeaVMThread {
                 fireEvent(new DebugEvent(TeaVMJSThread.this, DebugEvent.RESUME));
             }
             @Override
-            public void paused() {
+            public void paused(JavaScriptBreakpoint breakpoint) {
                 updateStackTrace();
                 fireEvent(new DebugEvent(TeaVMJSThread.this, DebugEvent.SUSPEND));
             }

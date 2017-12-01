@@ -21,7 +21,6 @@ import org.teavm.interop.StaticInit;
 import org.teavm.interop.Structure;
 import org.teavm.interop.Unmanaged;
 
-@Unmanaged
 @StaticInit
 public final class ExceptionHandling {
     private ExceptionHandling() {
@@ -32,18 +31,19 @@ public final class ExceptionHandling {
     private static Throwable thrownException;
 
     @Export(name = "sys$catchException")
+    @Unmanaged
     public static Throwable catchException() {
         Throwable exception = thrownException;
         thrownException = null;
         return exception;
     }
 
+    @Unmanaged
     public static void throwException(Throwable exception) {
         thrownException = exception;
 
         RuntimeObject exceptionPtr = Address.ofObject(exception).toStructure();
         RuntimeClass exceptionClass = RuntimeClass.getClass(exceptionPtr);
-        IsSupertypeFunction isExceptionSupertype = exceptionClass.isSupertypeOf;
 
         Address stackFrame = ShadowStack.getStackTop();
         stackLoop: while (stackFrame != null) {
@@ -52,7 +52,7 @@ public final class ExceptionHandling {
             ExceptionHandler handler = callSite.firstHandler;
 
             for (int i = 0; i < callSite.handlerCount; ++i) {
-                if (handler.exceptionClass == null || isExceptionSupertype.apply(handler.exceptionClass)) {
+                if (handler.exceptionClass == null || handler.exceptionClass.isSupertypeOf.apply(exceptionClass)) {
                     ShadowStack.setExceptionHandlerId(stackFrame, handler.id);
                     break stackLoop;
                 }
@@ -63,5 +63,42 @@ public final class ExceptionHandling {
             ShadowStack.setExceptionHandlerId(stackFrame, callSiteId - 1);
             stackFrame = ShadowStack.getNextStackFrame(stackFrame);
         }
+    }
+
+    @Unmanaged
+    public static int callStackSize() {
+        Address stackFrame = ShadowStack.getStackTop();
+        int size = 0;
+        while (stackFrame != null) {
+            stackFrame = ShadowStack.getNextStackFrame(stackFrame);
+            size++;
+        }
+        return size;
+    }
+
+    @Unmanaged
+    public static void fillStackTrace(StackTraceElement[] target, int skip) {
+        Address stackFrame = ShadowStack.getNextStackFrame(ShadowStack.getNextStackFrame(ShadowStack.getStackTop()));
+        int index = 0;
+        while (stackFrame != null && index < target.length) {
+            int callSiteId = ShadowStack.getCallSiteId(stackFrame);
+            CallSite callSite = findCallSiteById(callSiteId);
+            CallSiteLocation location = callSite.location;
+            StackTraceElement element = createElement(location != null ? location.className : "",
+                    location != null ? location.methodName : "", location != null ? location.fileName : null,
+                    location != null ? location.lineNumber : -1);
+            if (skip > 0) {
+                skip--;
+            } else {
+                target[index++] = element;
+            }
+
+            stackFrame = ShadowStack.getNextStackFrame(stackFrame);
+        }
+    }
+
+    private static StackTraceElement createElement(String className, String methodName, String fileName,
+            int lineNumber) {
+        return new StackTraceElement(className, methodName, fileName, lineNumber);
     }
 }

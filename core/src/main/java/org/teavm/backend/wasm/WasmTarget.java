@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import org.teavm.ast.decompilation.Decompiler;
 import org.teavm.backend.wasm.binary.BinaryWriter;
@@ -46,6 +47,8 @@ import org.teavm.backend.wasm.intrinsics.PlatformIntrinsic;
 import org.teavm.backend.wasm.intrinsics.PlatformObjectIntrinsic;
 import org.teavm.backend.wasm.intrinsics.ShadowStackIntrinsic;
 import org.teavm.backend.wasm.intrinsics.StructureIntrinsic;
+import org.teavm.backend.wasm.intrinsics.WasmIntrinsicFactory;
+import org.teavm.backend.wasm.intrinsics.WasmIntrinsicFactoryContext;
 import org.teavm.backend.wasm.intrinsics.WasmRuntimeIntrinsic;
 import org.teavm.backend.wasm.model.WasmFunction;
 import org.teavm.backend.wasm.model.WasmLocal;
@@ -76,8 +79,9 @@ import org.teavm.backend.wasm.render.WasmCRenderer;
 import org.teavm.backend.wasm.render.WasmRenderer;
 import org.teavm.backend.wasm.transformation.IndirectCallTraceTransformation;
 import org.teavm.backend.wasm.transformation.MemoryAccessTraceTransformation;
+import org.teavm.common.ServiceRepository;
 import org.teavm.dependency.ClassDependency;
-import org.teavm.dependency.DependencyChecker;
+import org.teavm.dependency.DependencyAnalyzer;
 import org.teavm.dependency.DependencyListener;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
@@ -122,7 +126,7 @@ import org.teavm.vm.TeaVMTarget;
 import org.teavm.vm.TeaVMTargetController;
 import org.teavm.vm.spi.TeaVMHostExtension;
 
-public class WasmTarget implements TeaVMTarget {
+public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
     private TeaVMTargetController controller;
     private boolean debugging;
     private boolean wastEmitted;
@@ -131,7 +135,8 @@ public class WasmTarget implements TeaVMTarget {
     private ClassInitializerEliminator classInitializerEliminator;
     private ClassInitializerTransformer classInitializerTransformer;
     private ShadowStackTransformer shadowStackTransformer;
-    private WasmBinaryVersion version = WasmBinaryVersion.V_0xC;
+    private WasmBinaryVersion version = WasmBinaryVersion.V_0x1;
+    private List<WasmIntrinsicFactory> additionalIntrinsics = new ArrayList<>();
 
     @Override
     public void setController(TeaVMTargetController controller) {
@@ -143,8 +148,13 @@ public class WasmTarget implements TeaVMTarget {
     }
 
     @Override
+    public void add(WasmIntrinsicFactory intrinsic) {
+        additionalIntrinsics.add(intrinsic);
+    }
+
+    @Override
     public List<TeaVMHostExtension> getHostExtensions() {
-        return Collections.emptyList();
+        return Collections.singletonList(this);
     }
 
     @Override
@@ -200,62 +210,62 @@ public class WasmTarget implements TeaVMTarget {
     }
 
     @Override
-    public void contributeDependencies(DependencyChecker dependencyChecker) {
+    public void contributeDependencies(DependencyAnalyzer dependencyAnalyzer) {
         for (Class<?> type : Arrays.asList(int.class, long.class, float.class, double.class)) {
             MethodReference method = new MethodReference(WasmRuntime.class, "compare", type, type, int.class);
-            dependencyChecker.linkMethod(method, null).use();
+            dependencyAnalyzer.linkMethod(method, null).use();
         }
         for (Class<?> type : Arrays.asList(float.class, double.class)) {
             MethodReference method = new MethodReference(WasmRuntime.class, "remainder", type, type, type);
-            dependencyChecker.linkMethod(method, null).use();
+            dependencyAnalyzer.linkMethod(method, null).use();
         }
 
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "align", Address.class, int.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "align", Address.class, int.class,
                 Address.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "fillZero", Address.class, int.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "fillZero", Address.class, int.class,
                 void.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "moveMemoryBlock", Address.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "moveMemoryBlock", Address.class,
                 Address.class, int.class, void.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "allocStack",
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "allocStack",
                 int.class, Address.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "getStackTop", Address.class),
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackTop", Address.class),
                 null) .use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "getNextStackFrame", Address.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getNextStackFrame", Address.class,
                 Address.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "getStackRootCount", Address.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackRootCount", Address.class,
                 int.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "getStackRootPointer", Address.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackRootPointer", Address.class,
                 Address.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "setExceptionHandlerId", Address.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "setExceptionHandlerId", Address.class,
                 int.class, void.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(WasmRuntime.class, "getCallSiteId", Address.class,
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getCallSiteId", Address.class,
                 int.class), null).use();
 
-        dependencyChecker.linkMethod(new MethodReference(Allocator.class, "allocate",
+        dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "allocate",
                 RuntimeClass.class, Address.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(Allocator.class, "allocateArray",
+        dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "allocateArray",
                 RuntimeClass.class, int.class, Address.class), null).use();
-        dependencyChecker.linkMethod(new MethodReference(Allocator.class, "allocateMultiArray",
+        dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "allocateMultiArray",
                 RuntimeClass.class, Address.class, int.class, RuntimeArray.class), null).use();
 
-        dependencyChecker.linkMethod(new MethodReference(Allocator.class, "<clinit>", void.class), null).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "<clinit>", void.class), null).use();
 
-        dependencyChecker.linkMethod(new MethodReference(ExceptionHandling.class, "throwException",
+        dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class, "throwException",
                 Throwable.class, void.class), null).use();
 
-        dependencyChecker.linkMethod(new MethodReference(ExceptionHandling.class, "catchException",
+        dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class, "catchException",
                 Throwable.class), null).use();
 
-        dependencyChecker.linkField(new FieldReference("java.lang.Object", "monitor"), null);
+        dependencyAnalyzer.linkField(new FieldReference("java.lang.Object", "monitor"), null);
 
-        ClassDependency runtimeClassDep = dependencyChecker.linkClass(RuntimeClass.class.getName(), null);
-        ClassDependency runtimeObjectDep = dependencyChecker.linkClass(RuntimeObject.class.getName(), null);
-        ClassDependency runtimeJavaObjectDep = dependencyChecker.linkClass(RuntimeJavaObject.class.getName(), null);
-        ClassDependency runtimeArrayDep = dependencyChecker.linkClass(RuntimeArray.class.getName(), null);
+        ClassDependency runtimeClassDep = dependencyAnalyzer.linkClass(RuntimeClass.class.getName(), null);
+        ClassDependency runtimeObjectDep = dependencyAnalyzer.linkClass(RuntimeObject.class.getName(), null);
+        ClassDependency runtimeJavaObjectDep = dependencyAnalyzer.linkClass(RuntimeJavaObject.class.getName(), null);
+        ClassDependency runtimeArrayDep = dependencyAnalyzer.linkClass(RuntimeArray.class.getName(), null);
         for (ClassDependency classDep : Arrays.asList(runtimeClassDep, runtimeObjectDep, runtimeJavaObjectDep,
                 runtimeArrayDep)) {
             for (FieldReader field : classDep.getClassReader().getFields()) {
-                dependencyChecker.linkField(field.getReference(), null);
+                dependencyAnalyzer.linkField(field.getReference(), null);
             }
         }
     }
@@ -281,13 +291,13 @@ public class WasmTarget implements TeaVMTarget {
                 classes, vtableProvider, tagRegistry, binaryWriter);
 
         Decompiler decompiler = new Decompiler(classes, controller.getClassLoader(), new HashSet<>(),
-                new HashSet<>());
-        WasmStringPool stringPool = new WasmStringPool(classGenerator, binaryWriter);
+                new HashSet<>(), false);
+        WasmStringPool stringPool = classGenerator.getStringPool();
         WasmGenerationContext context = new WasmGenerationContext(classes, module, controller.getDiagnostics(),
                 vtableProvider, tagRegistry, stringPool);
 
         context.addIntrinsic(new AddressIntrinsic(classGenerator));
-        context.addIntrinsic(new StructureIntrinsic(classGenerator));
+        context.addIntrinsic(new StructureIntrinsic(classes, classGenerator));
         context.addIntrinsic(new FunctionIntrinsic(classGenerator));
         WasmRuntimeIntrinsic wasmRuntimeIntrinsic = new WasmRuntimeIntrinsic();
         context.addIntrinsic(wasmRuntimeIntrinsic);
@@ -296,13 +306,19 @@ public class WasmTarget implements TeaVMTarget {
         context.addIntrinsic(new PlatformClassIntrinsic());
         context.addIntrinsic(new PlatformObjectIntrinsic(classGenerator));
         context.addIntrinsic(new ClassIntrinsic());
+
+        IntrinsicFactoryContext intrinsicFactoryContext = new IntrinsicFactoryContext(classes);
+        for (WasmIntrinsicFactory additionalIntrinsicFactory : additionalIntrinsics) {
+            context.addIntrinsic(additionalIntrinsicFactory.create(intrinsicFactoryContext));
+        }
+
         GCIntrinsic gcIntrinsic = new GCIntrinsic();
         context.addIntrinsic(gcIntrinsic);
         MutatorIntrinsic mutatorIntrinsic = new MutatorIntrinsic();
         context.addIntrinsic(mutatorIntrinsic);
         context.addIntrinsic(new ShadowStackIntrinsic());
         ExceptionHandlingIntrinsic exceptionHandlingIntrinsic = new ExceptionHandlingIntrinsic(binaryWriter,
-                classGenerator);
+                classGenerator, stringPool);
         context.addIntrinsic(exceptionHandlingIntrinsic);
 
         WasmGenerator generator = new WasmGenerator(decompiler, classes, context, classGenerator, binaryWriter);
@@ -376,6 +392,34 @@ public class WasmTarget implements TeaVMTarget {
         }
         if (cEmitted) {
             emitC(module, buildTarget, getBaseName(outputName) + ".c");
+        }
+    }
+
+    private class IntrinsicFactoryContext implements WasmIntrinsicFactoryContext {
+        private ListableClassReaderSource classSource;
+
+        IntrinsicFactoryContext(ListableClassReaderSource classSource) {
+            this.classSource = classSource;
+        }
+
+        @Override
+        public ListableClassReaderSource getClassSource() {
+            return classSource;
+        }
+
+        @Override
+        public ClassLoader getClassLoader() {
+            return controller.getClassLoader();
+        }
+
+        @Override
+        public ServiceRepository getServices() {
+            return controller.getServices();
+        }
+
+        @Override
+        public Properties getProperties() {
+            return controller.getProperties();
         }
     }
 
@@ -566,7 +610,7 @@ public class WasmTarget implements TeaVMTarget {
         body.add(new WasmReturn(itemTest));
     }
 
-    private WasmFunction generateStub(WasmModule module, MethodHolder method, MethodHolder implementor) {
+    private void generateStub(WasmModule module, MethodHolder method, MethodHolder implementor) {
         WasmFunction function = module.getFunctions().get(WasmMangling.mangleMethod(method.getReference()));
 
         WasmCall call = new WasmCall(WasmMangling.mangleMethod(implementor.getReference()));
@@ -581,7 +625,6 @@ public class WasmTarget implements TeaVMTarget {
         } else {
             function.getBody().add(new WasmReturn(call));
         }
-        return function;
     }
 
     private void renderClinit(ListableClassReaderSource classes, WasmClassGenerator classGenerator,
