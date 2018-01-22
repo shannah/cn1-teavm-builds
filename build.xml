@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="CN1TeaVM-Builds" default="default" basedir=".">
     <description>Creates a new Release of TeaVM for the CN1 Build server</description>
-    <property value="0.6.0-cn1-001" name="cn1.release.version"/>
+    <property value="0.6.0-cn1-002" name="cn1.release.version"/>
     <property value="0.6.0-SNAPSHOT" name="teavm.snapshot.version"/>
 
     <target name="merge-master" description="Merges master">
