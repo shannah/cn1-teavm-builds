@@ -33,7 +33,7 @@ public class TLatin1Encoder extends TBufferedEncoder {
         TCoderResult result = null;
         while (inPos < inSize && outPos < outSize) {
             char ch = inArray[inPos++];
-            outArray[outPos++] = ch > 0xFF ? (byte)'?' : (byte) ch;
+            outArray[outPos++] = ch > 0xFF ? (byte) '?' : (byte) ch;
         }
 
         controller.setInPosition(inPos);

@@ -32,7 +32,7 @@ public class TLatin1Decoder extends TBufferedDecoder {
             Controller controller) {
         TCoderResult result = null;
         while (inPos < inSize && outPos < outSize) {
-            outArray[outPos++] = (char)(inArray[inPos++] & 0xFF);
+            outArray[outPos++] = (char) (inArray[inPos++] & 0xFF);
             
         }
 
