@@ -57,6 +57,7 @@ public class WasmClassGenerator {
     private List<String> functionTable = new ArrayList<>();
     private VirtualTableProvider vtableProvider;
     private TagRegistry tagRegistry;
+    private WasmStringPool stringPool;
     private DataStructure objectStructure = new DataStructure((byte) 0,
             DataPrimitives.INT, /* class */
             DataPrimitives.ADDRESS /* monitor/hash code */);
@@ -67,10 +68,12 @@ public class WasmClassGenerator {
             DataPrimitives.INT, /* flags */
             DataPrimitives.INT, /* tag */
             DataPrimitives.INT, /* canary */
+            DataPrimitives.ADDRESS, /* name */
             DataPrimitives.ADDRESS, /* item type */
             DataPrimitives.ADDRESS, /* array type */
             DataPrimitives.INT, /* isInstance function */
             DataPrimitives.ADDRESS, /* parent */
+            DataPrimitives.ADDRESS, /* enum values */
             DataPrimitives.ADDRESS  /* layout */);
     private IntegerArray staticGcRoots = new IntegerArray(1);
     private int staticGcRootsAddress;
@@ -79,11 +82,13 @@ public class WasmClassGenerator {
     private static final int CLASS_FLAGS = 2;
     private static final int CLASS_TAG = 3;
     private static final int CLASS_CANARY = 4;
-    private static final int CLASS_ITEM_TYPE = 5;
-    private static final int CLASS_ARRAY_TYPE = 6;
-    private static final int CLASS_IS_INSTANCE = 7;
-    private static final int CLASS_PARENT = 8;
-    private static final int CLASS_LAYOUT = 9;
+    private static final int CLASS_NAME = 5;
+    private static final int CLASS_ITEM_TYPE = 6;
+    private static final int CLASS_ARRAY_TYPE = 7;
+    private static final int CLASS_IS_INSTANCE = 8;
+    private static final int CLASS_PARENT = 9;
+    private static final int CLASS_ENUM_VALUES = 10;
+    private static final int CLASS_LAYOUT = 11;
 
     public WasmClassGenerator(ClassReaderSource classSource, VirtualTableProvider vtableProvider,
             TagRegistry tagRegistry, BinaryWriter binaryWriter) {
@@ -91,6 +96,11 @@ public class WasmClassGenerator {
         this.vtableProvider = vtableProvider;
         this.tagRegistry = tagRegistry;
         this.binaryWriter = binaryWriter;
+        this.stringPool = new WasmStringPool(this, binaryWriter);
+    }
+
+    public WasmStringPool getStringPool() {
+        return stringPool;
     }
 
     private void addClass(ValueType type) {
@@ -185,6 +195,7 @@ public class WasmClassGenerator {
                 : 0;
 
         String name = ((ValueType.Object) binaryData.type).getClassName();
+        int flags = 0;
 
         VirtualTable vtable = vtableProvider.lookup(name);
         int vtableSize = vtable != null ? vtable.getEntries().size() : 0;
@@ -204,6 +215,7 @@ public class WasmClassGenerator {
         int tag = ranges.stream().mapToInt(range -> range.lower).min().orElse(0);
         header.setInt(CLASS_TAG, tag);
         header.setInt(CLASS_CANARY, RuntimeClass.computeCanary(occupiedSize, tag));
+        header.setAddress(CLASS_NAME, stringPool.getStringPointer(name));
         header.setInt(CLASS_IS_INSTANCE, functionTable.size());
         functionTable.add(WasmMangling.mangleIsSupertype(ValueType.object(name)));
         header.setAddress(CLASS_PARENT, parentPtr);
@@ -229,7 +241,32 @@ public class WasmClassGenerator {
             staticGcRoots.add(binaryData.fieldLayout.get(field.getFieldName()));
         }
 
+        ClassReader cls = classSource.get(name);
+        if (cls != null && cls.hasModifier(ElementModifier.ENUM)) {
+            header.setAddress(CLASS_ENUM_VALUES, generateEnumValues(cls, binaryData));
+            flags |= RuntimeClass.ENUM;
+        }
+
+        header.setInt(CLASS_FLAGS, flags);
+
         return vtable != null ? wrapper : header;
+    }
+
+    private int generateEnumValues(ClassReader cls, ClassBinaryData binaryData) {
+        FieldReader[] fields = cls.getFields().stream()
+                .filter(field -> field.hasModifier(ElementModifier.ENUM))
+                .toArray(FieldReader[]::new);
+        DataValue sizeValue = DataPrimitives.ADDRESS.createValue();
+        sizeValue.setAddress(0, fields.length);
+        int valuesAddress = binaryWriter.append(sizeValue);
+
+        for (FieldReader field : fields) {
+            DataValue fieldRefValue = DataPrimitives.ADDRESS.createValue();
+            fieldRefValue.setAddress(0, binaryData.fieldLayout.get(field.getName()));
+            binaryWriter.append(fieldRefValue);
+        }
+
+        return valuesAddress;
     }
 
     private List<FieldReference> getReferenceFields(ClassReader cls) {
@@ -265,7 +302,7 @@ public class WasmClassGenerator {
                 if (cls.getName().equals(Structure.class.getName()) || cls.getName().equals(Function.class.getName())) {
                     return false;
                 }
-                if (cls.getParent() == null || cls.getParent().equals(cls.getName())) {
+                if (cls.getParent() == null) {
                     return true;
                 }
                 cls = classSource.get(cls.getParent());
@@ -348,7 +385,7 @@ public class WasmClassGenerator {
             data.start = -1;
             data.function = true;
             return;
-        } else if (cls.getParent() != null && !cls.getParent().equals(cls.getName())) {
+        } else if (cls.getParent() != null) {
             addClass(ValueType.object(cls.getParent()));
             ClassBinaryData parentData = binaryDataMap.get(ValueType.object(cls.getParent()));
             data.size = parentData.size;
@@ -369,7 +406,7 @@ public class WasmClassGenerator {
         data.cls = cls;
 
         for (FieldReader field : cls.getFields()) {
-            int desiredAlignment = getDesiredAlignment(field.getType());
+            int desiredAlignment = getTypeSize(field.getType());
             if (field.hasModifier(ElementModifier.STATIC)) {
                 DataType type = asDataType(field.getType());
                 data.fieldLayout.put(field.getName(), binaryWriter.append(type.createValue()));
@@ -413,7 +450,7 @@ public class WasmClassGenerator {
         return ((base - 1) / alignment + 1) * alignment;
     }
 
-    private int getDesiredAlignment(ValueType type) {
+    public static int getTypeSize(ValueType type) {
         if (type instanceof ValueType.Primitive) {
             switch (((ValueType.Primitive) type).getKind()) {
                 case BOOLEAN:

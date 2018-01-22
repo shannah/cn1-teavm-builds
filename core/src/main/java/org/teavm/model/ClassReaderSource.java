@@ -19,6 +19,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -32,7 +33,7 @@ public interface ClassReaderSource {
             ClassReader currentClass = get(name);
             @Override public ClassReader next() {
                 ClassReader result = currentClass;
-                if (currentClass.getParent() != null && !currentClass.getName().equals(currentClass.getParent())) {
+                if (currentClass.getParent() != null) {
                     currentClass = get(currentClass.getParent());
                 } else {
                     currentClass = null;
@@ -89,42 +90,30 @@ public interface ClassReaderSource {
     default MethodReader resolve(MethodReference method) {
         return getAncestors(method.getClassName())
                 .map(cls -> cls.getMethod(method.getDescriptor()))
-                .filter(candidate -> candidate != null)
+                .filter(Objects::nonNull)
                 .findFirst().orElse(null);
+    }
+
+    default MethodReader resolveImplementation(MethodReference methodReference) {
+        return ClassReaderSourceHelper.resolveMethodImplementation(this, methodReference.getClassName(),
+                methodReference.getDescriptor(), new HashSet<>());
     }
 
     default FieldReader resolve(FieldReference field) {
         return getAncestors(field.getClassName())
                 .map(cls -> cls.getField(field.getFieldName()))
-                .filter(candidate -> candidate != null)
+                .filter(Objects::nonNull)
                 .findFirst().orElse(null);
     }
 
     default Stream<MethodReader> overriddenMethods(MethodReference method) {
         return getAncestorClasses(method.getClassName())
                 .map(cls -> cls.getMethod(method.getDescriptor()))
-                .filter(candidate -> candidate != null);
+                .filter(Objects::nonNull);
     }
 
     default Optional<Boolean> isSuperType(String superType, String subType) {
-        if (superType.equals(subType)) {
-            return Optional.of(true);
-        }
-        ClassReader cls = get(subType);
-        if (cls == null) {
-            return Optional.empty();
-        }
-        if (cls.getParent() != null && !cls.getParent().equals(cls.getName())) {
-            if (isSuperType(superType, cls.getParent()).orElse(false)) {
-                return Optional.of(true);
-            }
-        }
-        for (String iface : cls.getInterfaces()) {
-            if (isSuperType(superType, iface).orElse(false)) {
-                return Optional.of(true);
-            }
-        }
-        return Optional.of(false);
+        return ClassReaderSourceHelper.isSuperType(this, superType, subType);
     }
 
     default Optional<Boolean> isSuperType(ValueType superType, ValueType subType) {

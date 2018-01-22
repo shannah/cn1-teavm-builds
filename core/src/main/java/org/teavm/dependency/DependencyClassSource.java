@@ -37,7 +37,7 @@ class DependencyClassSource implements ClassHolderSource {
     private List<ClassHolderTransformer> transformers = new ArrayList<>();
     private Map<String, ClassHolder> cache = new LinkedHashMap<>();
 
-    public DependencyClassSource(ClassReaderSource innerSource, Diagnostics diagnostics) {
+    DependencyClassSource(ClassReaderSource innerSource, Diagnostics diagnostics) {
         this.innerSource = innerSource;
         this.diagnostics = diagnostics;
     }
@@ -50,6 +50,12 @@ class DependencyClassSource implements ClassHolderSource {
     public void submit(ClassHolder cls) {
         if (innerSource.get(cls.getName()) != null || generatedClasses.containsKey(cls.getName())) {
             throw new IllegalArgumentException("Class " + cls.getName() + " is already defined");
+        }
+        if (!transformers.isEmpty()) {
+            for (ClassHolderTransformer transformer : transformers) {
+                transformer.transformClass(cls, innerSource, diagnostics);
+            }
+            cls = ModelUtils.copyClass(cls);
         }
         generatedClasses.put(cls.getName(), cls);
         for (MethodHolder method : cls.getMethods()) {
@@ -66,7 +72,6 @@ class DependencyClassSource implements ClassHolderSource {
             for (ClassHolderTransformer transformer : transformers) {
                 transformer.transformClass(cls, innerSource, diagnostics);
             }
-            cls = ModelUtils.copyClass(cls);
         }
         return cls;
     }

@@ -67,10 +67,9 @@ import org.teavm.diagnostics.ProblemTextConsumer;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassHolderTransformer;
 import org.teavm.model.FieldReference;
-import org.teavm.model.InstructionLocation;
 import org.teavm.model.MethodReference;
+import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
-import org.teavm.tooling.ClassAlias;
 import org.teavm.tooling.RuntimeCopyOperation;
 import org.teavm.tooling.TeaVMTool;
 import org.teavm.tooling.TeaVMToolException;
@@ -78,10 +77,6 @@ import org.teavm.tooling.sources.DirectorySourceFileProvider;
 import org.teavm.tooling.sources.JarSourceFileProvider;
 import org.teavm.tooling.sources.SourceFileProvider;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
     private static final int TICKS_PER_PROFILE = 10000;
     private URL[] classPath;
@@ -156,7 +151,7 @@ public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
         String targetDir = profile.getTargetDirectory();
         tool.setTargetDirectory(new File(varManager.performStringSubstitution(targetDir, false)));
         tool.setTargetFileName(profile.getTargetFileName());
-        tool.setMinifying(profile.isMinifying());
+        tool.setMinifying(false);
         tool.setRuntime(mapRuntime(profile.getRuntimeMode()));
         tool.setMainClass(profile.getMainClass());
         tool.getProperties().putAll(profile.getProperties());
@@ -167,12 +162,7 @@ public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
         for (ClassHolderTransformer transformer : instantiateTransformers(profile, classLoader)) {
             tool.getTransformers().add(transformer);
         }
-        for (Map.Entry<String, String> entry : profile.getClassAliases().entrySet()) {
-            ClassAlias classAlias = new ClassAlias();
-            classAlias.setClassName(entry.getKey());
-            classAlias.setAlias(entry.getValue());
-            tool.getClassAliases().add(classAlias);
-        }
+        tool.getClassesToPreserve().addAll(profile.getClassesToPreserve());
         for (SourceFileProvider provider : sourceProviders) {
             tool.addSourceFileProvider(provider);
         }
@@ -355,7 +345,7 @@ public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
         return wasPut;
     }
 
-    private boolean putMarker(IResource resource, InstructionLocation location, MethodReference method,
+    private boolean putMarker(IResource resource, TextLocation location, MethodReference method,
             String text, TeaVMProfile profile, boolean force) throws CoreException {
         Integer lineNumber = location != null ? location.getLine() : null;
         if (lineNumber == null) {
@@ -450,7 +440,7 @@ public class TeaVMProjectBuilder extends IncrementalProjectBuilder {
             @Override public void appendMethod(MethodReference method) {
                 sb.append(getFullMethodName(method));
             }
-            @Override public void appendLocation(InstructionLocation location) {
+            @Override public void appendLocation(TextLocation location) {
                 sb.append(location);
             }
             @Override public void appendField(FieldReference field) {

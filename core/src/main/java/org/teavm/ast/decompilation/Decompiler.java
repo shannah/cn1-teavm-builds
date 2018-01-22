@@ -53,6 +53,7 @@ import org.teavm.common.GraphIndexer;
 import org.teavm.common.Loop;
 import org.teavm.common.LoopGraph;
 import org.teavm.common.RangeTree;
+import org.teavm.interop.PlatformMarker;
 import org.teavm.model.AnnotationHolder;
 import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassHolderSource;
@@ -91,14 +92,16 @@ public class Decompiler {
     private List<TryCatchBookmark> tryCatchBookmarks = new ArrayList<>();
     private Deque<Block> stack;
     private Program program;
+    private boolean friendlyToDebugger;
 
     public Decompiler(ClassHolderSource classSource, ClassLoader classLoader, Set<MethodReference> asyncMethods,
-            Set<MethodReference> asyncFamilyMethods) {
+            Set<MethodReference> asyncFamilyMethods, boolean friendlyToDebugger) {
         this.classSource = classSource;
         this.classLoader = classLoader;
         this.asyncMethods = asyncMethods;
         splitMethods.addAll(asyncMethods);
         splitMethods.addAll(asyncFamilyMethods);
+        this.friendlyToDebugger = friendlyToDebugger;
     }
 
     public MethodNodeCache getRegularMethodCache() {
@@ -198,7 +201,7 @@ public class Decompiler {
             if (method.getModifiers().contains(ElementModifier.ABSTRACT)) {
                 continue;
             }
-            if (method.getAnnotations().get(InjectedBy.class.getName()) != null
+            if ((!isBootstrap() && method.getAnnotations().get(InjectedBy.class.getName()) != null)
                     || methodsToSkip.contains(method.getReference())) {
                 continue;
             }
@@ -207,6 +210,7 @@ public class Decompiler {
         }
         clsNode.getInterfaces().addAll(cls.getInterfaces());
         clsNode.getModifiers().addAll(cls.getModifiers());
+        clsNode.setAccessLevel(cls.getLevel());
         return clsNode;
     }
 
@@ -217,7 +221,7 @@ public class Decompiler {
 
     public NativeMethodNode decompileNative(MethodHolder method) {
         Generator generator = generators.get(method.getReference());
-        if (generator == null) {
+        if (generator == null && !isBootstrap()) {
             AnnotationHolder annotHolder = method.getAnnotations().get(GeneratedBy.class.getName());
             if (annotHolder == null) {
                 throw new DecompilationException("Method " + method.getOwnerName() + "." + method.getDescriptor()
@@ -239,6 +243,11 @@ public class Decompiler {
         methodNode.setGenerator(generator);
         methodNode.setAsync(asyncMethods.contains(method.getReference()));
         return methodNode;
+    }
+
+    @PlatformMarker
+    private static boolean isBootstrap() {
+        return false;
     }
 
     public RegularMethodNode decompileRegular(MethodHolder method) {
@@ -275,7 +284,7 @@ public class Decompiler {
         }
 
         Optimizer optimizer = new Optimizer();
-        optimizer.optimize(methodNode, method.getProgram());
+        optimizer.optimize(methodNode, method.getProgram(), friendlyToDebugger);
         methodNode.getModifiers().addAll(method.getModifiers());
 
         return methodNode;
@@ -339,7 +348,7 @@ public class Decompiler {
         }
 
         Optimizer optimizer = new Optimizer();
-        optimizer.optimize(node, splitter);
+        optimizer.optimize(node, splitter, friendlyToDebugger);
         node.getModifiers().addAll(method.getModifiers());
 
         return node;
@@ -406,7 +415,7 @@ public class Decompiler {
                     }
                 }
 
-                for (int j = oldBlock.tryCatches.size() - 1; j >= 0; --j) {
+                for (int j = 0; j < oldBlock.tryCatches.size(); ++j) {
                     TryCatchBookmark bookmark = oldBlock.tryCatches.get(j);
                     TryCatchStatement tryCatchStmt = new TryCatchStatement();
                     tryCatchStmt.setExceptionType(bookmark.exceptionType);
@@ -419,7 +428,7 @@ public class Decompiler {
                     if (!tryCatchStmt.getProtectedBody().isEmpty()) {
                         blockPart.add(tryCatchStmt);
                     }
-                    inheritedBookmarks.add(bookmark);
+                    inheritedBookmarks.add(0, bookmark);
                 }
                 oldBlock.tryCatches.clear();
             }
@@ -490,8 +499,15 @@ public class Decompiler {
         }
 
         // Close old bookmarks
+        List<TryCatchBookmark> removedBookmarks = new ArrayList<>();
         for (int i = tryCatchBookmarks.size() - 1; i >= start; --i) {
             TryCatchBookmark bookmark = tryCatchBookmarks.get(i);
+            bookmark.block.tryCatches.remove(bookmark);
+            removedBookmarks.add(bookmark);
+        }
+
+        Collections.reverse(removedBookmarks);
+        for (TryCatchBookmark bookmark : removedBookmarks) {
             Block block = stack.peek();
             while (block != bookmark.block) {
                 TryCatchStatement tryCatchStmt = new TryCatchStatement();
@@ -506,7 +522,6 @@ public class Decompiler {
                 }
                 block = block.parent;
             }
-
             TryCatchStatement tryCatchStmt = new TryCatchStatement();
             tryCatchStmt.setExceptionType(bookmark.exceptionType);
             tryCatchStmt.setExceptionVariable(bookmark.exceptionVariable);
@@ -520,18 +535,15 @@ public class Decompiler {
             if (!tryCatchStmt.getProtectedBody().isEmpty()) {
                 blockPart.add(tryCatchStmt);
             }
-
-            bookmark.block.tryCatches.remove(bookmark);
         }
 
         tryCatchBookmarks.subList(start, tryCatchBookmarks.size()).clear();
-
     }
 
     private void createNewBookmarks(List<TryCatchBlock> tryCatchBlocks) {
         // Add new bookmarks
         for (int i = tryCatchBookmarks.size(); i < tryCatchBlocks.size(); ++i) {
-            TryCatchBlock tryCatch = tryCatchBlocks.get(i);
+            TryCatchBlock tryCatch = tryCatchBlocks.get(tryCatchBlocks.size() - 1 - i);
             TryCatchBookmark bookmark = new TryCatchBookmark();
             bookmark.block = stack.peek();
             bookmark.offset = bookmark.block.body.size();

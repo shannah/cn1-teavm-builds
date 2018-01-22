@@ -18,6 +18,7 @@ package org.teavm.classlib.impl.unicode;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -33,12 +34,9 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class CLDRReader {
-    private static String[] weekdayKeys = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+    private static final String[] weekdayKeys = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+    private static CLDRReader lastInstance;
     private Map<String, CLDRLocale> knownLocales = new LinkedHashMap<>();
     private Map<String, Integer> minDaysMap = new LinkedHashMap<>();
     private Map<String, Integer> firstDayMap = new LinkedHashMap<>();
@@ -47,24 +45,32 @@ public class CLDRReader {
     private Set<String> availableLanguages = new LinkedHashSet<>();
     private Set<String> availableCountries = new LinkedHashSet<>();
     private boolean initialized;
-    private Properties properties;
     private ClassLoader classLoader;
+    private String availableLocalesString;
 
-    public CLDRReader(Properties properties, ClassLoader classLoader) {
-        this.properties = properties;
+    private CLDRReader(ClassLoader classLoader, String availableLocalesString) {
         this.classLoader = classLoader;
+        this.availableLocalesString = availableLocalesString;
+    }
+
+    public static CLDRReader getInstance(Properties properties, ClassLoader classLoader) {
+        String availableLocalesString = properties.getProperty("java.util.Locale.available", "en_EN").trim();
+        if (lastInstance == null || !lastInstance.availableLocalesString.equals(availableLocalesString)
+                || lastInstance.classLoader != classLoader) {
+            lastInstance = new CLDRReader(classLoader, availableLocalesString);
+        }
+        return lastInstance;
     }
 
     private synchronized void ensureInitialized() {
         if (!initialized) {
             initialized = true;
-            findAvailableLocales(properties);
+            findAvailableLocales();
             readCLDR(classLoader);
         }
     }
 
-    private void findAvailableLocales(Properties properties) {
-        String availableLocalesString = properties.getProperty("java.util.Locale.available", "en_EN").trim();
+    private void findAvailableLocales() {
         for (String locale : Arrays.asList(availableLocalesString.split(" *, *"))) {
             int countryIndex = locale.indexOf('_');
             if (countryIndex > 0) {
@@ -82,8 +88,8 @@ public class CLDRReader {
     }
 
     private void readCLDR(ClassLoader classLoader) {
-        try (ZipInputStream input = new ZipInputStream(classLoader.getResourceAsStream(
-                "org/teavm/classlib/impl/unicode/cldr-json.zip"))) {
+        try (ZipInputStream input = new ZipInputStream(new BufferedInputStream(classLoader.getResourceAsStream(
+                "org/teavm/classlib/impl/unicode/cldr-json.zip")))) {
             while (true) {
                 ZipEntry entry = input.getNextEntry();
                 if (entry == null) {

@@ -885,8 +885,14 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                     switch (expr.getTarget()) {
                         case INT:
                             precedence = Precedence.MEMBER_ACCESS;
-                            expr.getValue().acceptVisitor(this);
-                            writer.append(".lo");
+                            Expr longShifted = extractLongRightShiftedBy32(expr.getValue());
+                            if (longShifted != null) {
+                                longShifted.acceptVisitor(this);
+                                writer.append(".hi");
+                            } else {
+                                expr.getValue().acceptVisitor(this);
+                                writer.append(".lo");
+                            }
                             break;
                         case FLOAT:
                         case DOUBLE:
@@ -924,11 +930,36 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                     break;
             }
             if (expr.getLocation() != null) {
-                pushLocation(expr.getLocation());
+                popLocation();
             }
         } catch (IOException e) {
             throw new RenderingException("IO error occured", e);
         }
+    }
+
+    private Expr extractLongRightShiftedBy32(Expr expr) {
+        if (!(expr instanceof BinaryExpr)) {
+            return null;
+        }
+
+        BinaryExpr binary = (BinaryExpr) expr;
+        if (binary.getOperation() != BinaryOperation.RIGHT_SHIFT
+                && binary.getOperation() != BinaryOperation.UNSIGNED_RIGHT_SHIFT) {
+            return null;
+        }
+        if (binary.getType() != OperationType.LONG) {
+            return null;
+        }
+        if (!(binary.getSecondOperand() instanceof ConstantExpr)) {
+            return null;
+        }
+
+        Object rightConstant = ((ConstantExpr) binary.getSecondOperand()).getValue();
+        if (rightConstant.equals(32) || rightConstant.equals(32L)) {
+            return binary.getFirstOperand();
+        }
+
+        return null;
     }
 
     @Override

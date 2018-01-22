@@ -68,7 +68,17 @@ public class ScalarReplacementTest {
     }
 
     @Test
+    public void escapingLivingAssignmentSource() {
+        doTest();
+    }
+
+    @Test
     public void copy() {
+        doTest();
+    }
+
+    @Test
+    public void reachabilityByClasses() {
         doTest();
     }
 

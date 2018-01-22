@@ -15,15 +15,14 @@
  */
 package org.teavm.tooling;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.ArrayList;
@@ -62,7 +61,6 @@ import org.teavm.vm.BuildTarget;
 import org.teavm.vm.DirectoryBuildTarget;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
-import org.teavm.vm.TeaVMEntryPoint;
 import org.teavm.vm.TeaVMOptimizationLevel;
 import org.teavm.vm.TeaVMProgressListener;
 import org.teavm.vm.TeaVMTarget;
@@ -76,15 +74,13 @@ public class TeaVMTool implements BaseTeaVMTool {
     private String mainClass;
     private RuntimeCopyOperation runtime = RuntimeCopyOperation.SEPARATE;
     private Properties properties = new Properties();
-    private boolean mainPageIncluded;
     private boolean debugInformationGenerated;
     private boolean sourceMapsFileGenerated;
     private boolean sourceFilesCopied;
     private boolean incremental;
     private File cacheDirectory = new File("./teavm-cache");
     private List<ClassHolderTransformer> transformers = new ArrayList<>();
-    private List<ClassAlias> classAliases = new ArrayList<>();
-    private List<MethodAlias> methodAliases = new ArrayList<>();
+    private List<String> classesToPreserve = new ArrayList<>();
     private TeaVMToolLog log = new EmptyTeaVMToolLog();
     private ClassLoader classLoader = TeaVMTool.class.getClassLoader();
     private DiskCachedClassHolderSource cachedClassSource;
@@ -100,7 +96,8 @@ public class TeaVMTool implements BaseTeaVMTool {
     private DebugInformationBuilder debugEmitter;
     private JavaScriptTarget javaScriptTarget;
     private WasmTarget webAssemblyTarget;
-    private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0xD;
+    private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0x1;
+    private Set<File> generatedFiles = new HashSet<>();
 
     public File getTargetDirectory() {
         return targetDirectory;
@@ -153,14 +150,6 @@ public class TeaVMTool implements BaseTeaVMTool {
         this.runtime = runtime;
     }
 
-    public boolean isMainPageIncluded() {
-        return mainPageIncluded;
-    }
-
-    public void setMainPageIncluded(boolean mainPageIncluded) {
-        this.mainPageIncluded = mainPageIncluded;
-    }
-
     public boolean isDebugInformationGenerated() {
         return debugInformationGenerated;
     }
@@ -206,12 +195,8 @@ public class TeaVMTool implements BaseTeaVMTool {
         return transformers;
     }
 
-    public List<ClassAlias> getClassAliases() {
-        return classAliases;
-    }
-
-    public List<MethodAlias> getMethodAliases() {
-        return methodAliases;
+    public List<String> getClassesToPreserve() {
+        return classesToPreserve;
     }
 
     public TeaVMToolLog getLog() {
@@ -274,6 +259,10 @@ public class TeaVMTool implements BaseTeaVMTool {
 
     public Collection<String> getClasses() {
         return vm != null ? vm.getClasses() : Collections.emptyList();
+    }
+
+    public Set<File> getGeneratedFiles() {
+        return generatedFiles;
     }
 
     public Collection<String> getUsedResources() {
@@ -397,26 +386,8 @@ public class TeaVMTool implements BaseTeaVMTool {
                         .withArrayValue(1, "java.lang.String")
                         .async();
             }
-            for (ClassAlias alias : classAliases) {
-                vm.exportType(alias.getAlias(), alias.getClassName());
-            }
-            for (MethodAlias methodAlias : methodAliases) {
-                MethodReference ref = new MethodReference(methodAlias.getClassName(), methodAlias.getMethodName(),
-                        MethodDescriptor.parseSignature(methodAlias.getDescriptor()));
-                TeaVMEntryPoint entryPoint = vm.entryPoint(methodAlias.getAlias(), ref).async();
-                if (methodAlias.getTypes() != null) {
-                    for (int i = 0; i < methodAlias.getTypes().length; ++i) {
-                        String types = methodAlias.getTypes()[i];
-                        if (types != null) {
-                            for (String type : types.split(" +")) {
-                                type = type.trim();
-                                if (!type.isEmpty()) {
-                                    entryPoint.withValue(i, type);
-                                }
-                            }
-                        }
-                    }
-                }
+            for (String className : classesToPreserve) {
+                vm.preserveType(className);
             }
             targetDirectory.mkdirs();
 
@@ -443,6 +414,9 @@ public class TeaVMTool implements BaseTeaVMTool {
                 TeaVMProblemRenderer.describeProblems(vm, log);
             }
 
+            File outputFile = new File(targetDirectory, outputName);
+            generatedFiles.add(outputFile);
+
             if (targetType == TeaVMTargetType.JAVASCRIPT) {
                 try (OutputStream output = new FileOutputStream(new File(targetDirectory, outputName), true)) {
                     try (Writer writer = new OutputStreamWriter(output, "UTF-8")) {
@@ -461,6 +435,8 @@ public class TeaVMTool implements BaseTeaVMTool {
                 fileTable.flush();
                 log.info("Cache updated");
             }
+
+            printStats();
         } catch (IOException e) {
             throw new TeaVMToolException("IO error occurred", e);
         }
@@ -488,10 +464,11 @@ public class TeaVMTool implements BaseTeaVMTool {
         if (debugInformationGenerated) {
             assert debugEmitter != null;
             DebugInformation debugInfo = debugEmitter.getDebugInformation();
-            try (OutputStream debugInfoOut = new BufferedOutputStream(new FileOutputStream(new File(targetDirectory,
-                    getResolvedTargetFileName() + ".teavmdbg")))) {
+            File debugSymbolFile = new File(targetDirectory, getResolvedTargetFileName() + ".teavmdbg");
+            try (OutputStream debugInfoOut = new BufferedOutputStream(new FileOutputStream(debugSymbolFile))) {
                 debugInfo.write(debugInfoOut);
             }
+            generatedFiles.add(debugSymbolFile);
             log.info("Debug information successfully written");
         }
         if (sourceMapsFileGenerated) {
@@ -499,10 +476,11 @@ public class TeaVMTool implements BaseTeaVMTool {
             DebugInformation debugInfo = debugEmitter.getDebugInformation();
             String sourceMapsFileName = getResolvedTargetFileName() + ".map";
             writer.append("\n//# sourceMappingURL=").append(sourceMapsFileName);
-            try (Writer sourceMapsOut = new OutputStreamWriter(new FileOutputStream(
-                    new File(targetDirectory, sourceMapsFileName)), "UTF-8")) {
+            File sourceMapsFile = new File(targetDirectory, sourceMapsFileName);
+            try (Writer sourceMapsOut = new OutputStreamWriter(new FileOutputStream(sourceMapsFile), "UTF-8")) {
                 debugInfo.writeAsSourceMaps(sourceMapsOut, "src", getResolvedTargetFileName());
             }
+            generatedFiles.add(sourceMapsFile);
             log.info("Source maps successfully written");
         }
         if (sourceFilesCopied) {
@@ -513,24 +491,29 @@ public class TeaVMTool implements BaseTeaVMTool {
         if (runtime == RuntimeCopyOperation.SEPARATE) {
             resourceToFile("org/teavm/backend/javascript/runtime.js", "runtime.js");
         }
-        if (mainPageIncluded) {
-            String text;
-            try (Reader reader = new InputStreamReader(classLoader.getResourceAsStream(
-                    "org/teavm/tooling/main.html"), "UTF-8")) {
-                text = IOUtils.toString(reader).replace("${classes.js}", getResolvedTargetFileName());
-            }
-            File mainPageFile = new File(targetDirectory, "main.html");
-            try (Writer mainPageWriter = new OutputStreamWriter(new FileOutputStream(mainPageFile), "UTF-8")) {
-                mainPageWriter.append(text);
-            }
+    }
+
+    private void printStats() {
+        if (vm == null || vm.getWrittenClasses() == null) {
+            return;
         }
+
+        int classCount = vm.getWrittenClasses().getClassNames().size();
+        int methodCount = 0;
+        for (String className : vm.getWrittenClasses().getClassNames()) {
+            ClassReader cls = vm.getWrittenClasses().get(className);
+            methodCount += cls.getMethods().size();
+        }
+
+        log.info("Classes compiled: " + classCount);
+        log.info("Methods compiled: " + methodCount);
     }
 
     private void copySourceFiles() {
         if (vm.getWrittenClasses() == null) {
             return;
         }
-        SourceFilesCopier copier = new SourceFilesCopier(sourceFileProviders);
+        SourceFilesCopier copier = new SourceFilesCopier(sourceFileProviders, generatedFiles::add);
         copier.addClasses(vm.getWrittenClasses());
         copier.setLog(log);
         copier.copy(new File(targetDirectory, "src"));
@@ -548,15 +531,17 @@ public class TeaVMTool implements BaseTeaVMTool {
 
     private void resourceToFile(String resource, String fileName) throws IOException {
         try (InputStream input = TeaVMTool.class.getClassLoader().getResourceAsStream(resource)) {
-            try (OutputStream output = new FileOutputStream(new File(targetDirectory, fileName))) {
-                IOUtils.copy(input, output);
+            File outputFile = new File(targetDirectory, fileName);
+            try (OutputStream output = new BufferedOutputStream(new FileOutputStream(outputFile))) {
+                IOUtils.copy(new BufferedInputStream(input), output);
             }
+            generatedFiles.add(outputFile);
         }
     }
 
     private void resourceToWriter(String resource, Writer writer) throws IOException {
         try (InputStream input = TeaVMTool.class.getClassLoader().getResourceAsStream(resource)) {
-            IOUtils.copy(input, writer, "UTF-8");
+            IOUtils.copy(new BufferedInputStream(input), writer, "UTF-8");
         }
     }
 }

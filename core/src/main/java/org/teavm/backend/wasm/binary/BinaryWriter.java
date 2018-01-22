@@ -72,7 +72,7 @@ public class BinaryWriter {
         }
     }
 
-    private static int align(int address, int alignment) {
+    public static int align(int address, int alignment) {
         if (address == 0) {
             return 0;
         }
@@ -107,10 +107,8 @@ public class BinaryWriter {
     public byte[] getData() {
         byte[] result = new byte[address];
         int offset = 0;
-        int index = 0;
         for (DataValue value : values) {
             offset = writeData(result, offset, value);
-            ++index;
         }
         return Arrays.copyOf(result, offset);
     }

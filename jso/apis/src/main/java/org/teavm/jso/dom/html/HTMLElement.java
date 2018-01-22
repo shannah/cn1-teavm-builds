@@ -28,10 +28,6 @@ import org.teavm.jso.dom.xml.Element;
 import org.teavm.jso.dom.xml.Node;
 import org.teavm.jso.dom.xml.NodeList;
 
-/**
- *
- * @author Alexey Andreev
- */
 public interface HTMLElement extends Element, ElementCSSInlineStyle, EventTarget, FocusEventTarget, MouseEventTarget,
         WheelEventTarget, KeyboardEventTarget, LoadEventTarget {
     @Override
@@ -104,7 +100,19 @@ public interface HTMLElement extends Element, ElementCSSInlineStyle, EventTarget
     int getScrollLeft();
 
     @JSProperty
+    void setScrollLeft(int scrollLeft);
+
+    @JSProperty
     int getScrollTop();
+
+    @JSProperty
+    void setScrollTop(int scrollTop);
+
+    @JSProperty
+    int getScrollWidth();
+
+    @JSProperty
+    int getScrollHeight();
 
     @JSProperty
     @Override
@@ -117,6 +125,12 @@ public interface HTMLElement extends Element, ElementCSSInlineStyle, EventTarget
     void setInnerHTML(String content);
 
     TextRectangle getBoundingClientRect();
+
+    @JSProperty
+    String getClassName();
+
+    @JSProperty
+    void setClassName(String className);
 
     default HTMLElement withAttr(String name, String value) {
         setAttribute(name, value);
@@ -157,4 +171,10 @@ public interface HTMLElement extends Element, ElementCSSInlineStyle, EventTarget
         clear().appendChild(getOwnerDocument().createTextNode(content));
         return this;
     }
+
+    @Override
+    HTMLElement querySelector(String selectors);
+
+    @Override
+    NodeList<? extends HTMLElement> querySelectorAll(String selectors);
 }

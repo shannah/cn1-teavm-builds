@@ -18,12 +18,9 @@ package org.teavm.classlib.java.util;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TObject;
+import org.teavm.interop.Import;
 import org.teavm.jso.JSBody;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TRandom extends TObject implements TSerializable {
 
     /** A stored gaussian value for nextGaussian() */
@@ -92,7 +89,9 @@ public class TRandom extends TObject implements TSerializable {
             return storedGaussian;
         }
 
-        double v1, v2, s;
+        double v1;
+        double v2;
+        double s;
         do {
             v1 = 2 * nextDouble() - 1;
             v2 = 2 * nextDouble() - 1;
@@ -107,5 +106,6 @@ public class TRandom extends TObject implements TSerializable {
     }
 
     @JSBody(script = "return Math.random();")
+    @Import(module = "math", name = "random")
     private static native double random();
 }

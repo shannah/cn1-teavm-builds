@@ -28,23 +28,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.teavm.backend.javascript.codegen.SourceWriter;
+import org.teavm.backend.javascript.spi.Generator;
+import org.teavm.backend.javascript.spi.GeneratorContext;
 import org.teavm.dependency.AbstractDependencyListener;
 import org.teavm.dependency.DependencyAgent;
 import org.teavm.dependency.DependencyNode;
 import org.teavm.dependency.MethodDependency;
-import org.teavm.backend.javascript.spi.Generator;
-import org.teavm.backend.javascript.spi.GeneratorContext;
 import org.teavm.model.CallLocation;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class ServiceLoaderSupport extends AbstractDependencyListener implements Generator {
-    private Set<String> achievedClasses = new HashSet<>();
+    private Set<String> reachedClasses = new HashSet<>();
     private Map<String, List<String>> serviceMap = new HashMap<>();
     private DependencyNode allClassesNode;
     private ClassLoader classLoader;
@@ -66,9 +62,11 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
                     writer.append(", ");
                 }
                 String implName = implementations.get(i);
-                writer.append("[").appendClass(implName).append(", ").appendMethodBody(
-                        new MethodReference(implName, new MethodDescriptor("<init>", ValueType.VOID)))
-                        .append("]");
+                if (context.getClassSource().getClassNames().contains(implName)) {
+                    writer.append("[").appendClass(implName).append(", ").appendMethodBody(
+                            new MethodReference(implName, new MethodDescriptor("<init>", ValueType.VOID)))
+                            .append("]");
+                }
             }
             writer.append("];").softNewLine();
         }
@@ -94,7 +92,7 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
 
     @Override
     public void classReached(DependencyAgent agent, String className, CallLocation location) {
-        if (!achievedClasses.add(className)) {
+        if (!reachedClasses.add(className)) {
             return;
         }
         try {

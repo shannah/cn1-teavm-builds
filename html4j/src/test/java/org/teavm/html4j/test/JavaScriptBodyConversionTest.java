@@ -18,18 +18,19 @@ package org.teavm.html4j.test;
 import static org.junit.Assert.*;
 import net.java.html.js.JavaScriptBody;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.teavm.junit.SkipJVM;
+import org.teavm.junit.TeaVMTestRunner;
 
-/**
- *
- * @author Alexey Andreev
- */
+@RunWith(TeaVMTestRunner.class)
+@SkipJVM
 public class JavaScriptBodyConversionTest {
     @Test
     public void convertsInteger() {
         assertEquals(23, returnAsInt(23));
         assertEquals(Integer.valueOf(23), returnAsInteger(23));
         assertEquals(23, returnAsObject(23));
-        assertEquals(24, addOne((Object)23));
+        assertEquals(24, addOne((Object) 23));
         assertEquals(Integer.valueOf(24), addOne(Integer.valueOf(23)));
         assertEquals(24, addOne(23));
     }
@@ -57,7 +58,7 @@ public class JavaScriptBodyConversionTest {
     @Test
     public void copiesArray() {
         Integer[] array = { 23, 42 };
-        Integer[] arrayCopy = (Integer[])modifyIntegerArray(array);
+        Integer[] arrayCopy = (Integer[]) modifyIntegerArray(array);
         assertEquals(Integer.valueOf(23), array[0]);
         assertEquals(Integer.valueOf(1), arrayCopy[0]);
     }

@@ -124,6 +124,10 @@ public class TeaVMTestRunner extends Runner implements Filterable {
                 case "htmlunit":
                     runStrategy = new HtmlUnitRunStrategy();
                     break;
+                case "":
+                case "none":
+                    runStrategy = null;
+                    break;
                 default:
                     throw new InitializationError("Unknown run strategy: " + runStrategyName);
             }
@@ -229,13 +233,9 @@ public class TeaVMTestRunner extends Runner implements Filterable {
 
             for (TeaVMTestConfiguration configuration : configurations) {
                 try {
-                    TestRun run = compileByTeaVM(child, notifier, expectedExceptions, configuration, onSuccess.get(0));
+                    TestRun run = compileByTeaVM(child, notifier, configuration, onSuccess.get(0));
                     if (run != null) {
                         runs.add(run);
-                    } else {
-                        notifier.fireTestFinished(description);
-                        latch.countDown();
-                        return;
                     }
                 } catch (Throwable e) {
                     notifier.fireTestFailure(new Failure(description, e));
@@ -293,7 +293,7 @@ public class TeaVMTestRunner extends Runner implements Filterable {
         return true;
     }
 
-    private TestRun compileByTeaVM(Method child, RunNotifier notifier, Set<Class<?>> expectedExceptions,
+    private TestRun compileByTeaVM(Method child, RunNotifier notifier,
             TeaVMTestConfiguration configuration, Consumer<Boolean> onComplete) {
         Description description = describeChild(child);
 
@@ -302,6 +302,8 @@ public class TeaVMTestRunner extends Runner implements Filterable {
             compileResult = compileTest(child, configuration);
         } catch (Exception e) {
             notifier.fireTestFailure(new Failure(description, e));
+            notifier.fireTestFinished(description);
+            latch.countDown();
             return null;
         }
 
@@ -330,7 +332,7 @@ public class TeaVMTestRunner extends Runner implements Filterable {
 
         return new TestRun(compileResult.file.getParentFile(), child,
                 new MethodReference(testClass.getName(), getDescriptor(child)),
-                description, callback, expectedExceptions);
+                description, compileResult.file.getName(), callback);
     }
 
     private void submitRun(TestRun run) {
@@ -400,16 +402,17 @@ public class TeaVMTestRunner extends Runner implements Filterable {
                 .setClassLoader(classLoader)
                 .setClassSource(classSource)
                 .build();
+
+        Properties properties = new Properties();
+        applyProperties(method.getDeclaringClass(), properties);
+        vm.setProperties(properties);
+
         vm.setIncremental(false);
         configuration.apply(vm);
         vm.installPlugins();
 
         new TestExceptionPlugin().install(vm);
         new TestEntryPointTransformer(runnerType.getName(), methodHolder.getReference()).install(vm);
-
-        Properties properties = new Properties();
-        applyProperties(method.getDeclaringClass(), properties);
-        vm.setProperties(properties);
 
         MethodReference exceptionMsg = new MethodReference(ExceptionHelper.class, "showException",
                 Throwable.class, String.class);

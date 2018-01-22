@@ -17,10 +17,6 @@ package org.teavm.classlib.java.io;
 
 import org.teavm.classlib.java.lang.*;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class TDataInputStream extends TFilterInputStream implements TDataInput {
     byte[] buff;
 
@@ -75,7 +71,6 @@ public class TDataInputStream extends TFilterInputStream implements TDataInput {
             throw new TEOFException();
         }
         return (char) (((buff[0] & 0xff) << 8) | (buff[1] & 0xff));
-
     }
 
     @Override
@@ -181,7 +176,7 @@ public class TDataInputStream extends TFilterInputStream implements TDataInput {
         if (readToBuff(2) < 0) {
             throw new TEOFException();
         }
-        return (short) (((buff[0] & 0xff) << 8) | (buff[1] & 0xff));
+        return (short) ((((buff[0] & 0xff) << 24) >> 16) | (buff[1] & 0xff));
     }
 
     @Override
@@ -190,7 +185,7 @@ public class TDataInputStream extends TFilterInputStream implements TDataInput {
         if (temp < 0) {
             throw new TEOFException();
         }
-        return temp;
+        return temp & 0xFF;
     }
 
     @Override

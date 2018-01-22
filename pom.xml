@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
     Copyright 2014 Alexey Andreev.
 
@@ -12,13 +13,12 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
--->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+--><project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>org.teavm</groupId>
   <artifactId>teavm</artifactId>
-  <version>0.5.0-SNAPSHOT</version>
+  <version>0.6.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>TeaVM</name>
@@ -67,7 +67,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <sonatypeOssDistMgmtSnapshotsUrl>https://oss.sonatype.org/content/repositories/snapshots/</sonatypeOssDistMgmtSnapshotsUrl>
-    <html4j.version>1.2.3</html4j.version>
+    <html4j.version>1.5</html4j.version>
     <jetty.version>9.2.1.v20140609</jetty.version>
     <slf4j.version>1.7.7</slf4j.version>
 
@@ -97,7 +97,6 @@
     <module>html4j</module>
     <module>platform</module>
     <module>tools/core</module>
-    <module>tools/cli</module>
     <module>tools/maven</module>
     <module>tools/chrome-rdp</module>
     <module>tools/junit</module>
@@ -142,7 +141,7 @@
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm-debug-all</artifactId>
-        <version>5.0.4</version>
+        <version>5.2</version>
       </dependency>
       <dependency>
         <groupId>org.apache.maven</groupId>
@@ -292,6 +291,7 @@
                 <encoding>UTF-8</encoding>
                 <consoleOutput>true</consoleOutput>
                 <failsOnError>true</failsOnError>
+                <includeTestSourceDirectory>true</includeTestSourceDirectory>
               </configuration>
               <goals>
                 <goal>check</goal>
@@ -327,6 +327,30 @@
 
   <profiles>
     <profile>
+      <id>htmlUnit</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <version>2.16</version>
+              <configuration>
+                <systemProperties>
+                  <teavm.junit.js.runner>htmlunit</teavm.junit.js.runner>
+                </systemProperties>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+
+    <profile>
       <id>all-modules</id>
       <activation>
         <property>
@@ -339,10 +363,25 @@
         <module>tools/idea</module>-->
       </modules>
     </profile>
+
+    <profile>
+      <id>with-cli</id>
+      <modules>
+        <module>tools/cli</module>
+      </modules>
+    </profile>
+    
     <profile>
       <id>with-idea</id>
       <modules>
         <!--<module>tools/idea</module>-->
+      </modules>
+    </profile>
+    
+    <profile>
+      <id>with-eclipse</id>
+      <modules>
+        <module>tools/eclipse</module>
       </modules>
     </profile>
 

@@ -15,7 +15,10 @@
  */
 package org.teavm.vm;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.fail;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.interop.Async;
@@ -80,6 +83,43 @@ public class VMTest {
     }
 
     @Test
+    public void emptyTryCatchInsideFinally() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            sb.append("before;");
+            try {
+                sb.append("inside;");
+                Integer.parseInt("not a number");
+                sb.append("ignore;");
+            } catch (NumberFormatException e) {
+                // do nothing
+            }
+            sb.append("after;");
+        } finally {
+            sb.append("finally;");
+        }
+        assertEquals("before;inside;after;finally;", sb.toString());
+    }
+
+    @Test
+    public void catchFinally() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            if (Integer.parseInt("invalid") > 0) {
+                sb.append("err1;");
+            } else {
+                sb.append("err2;");
+            }
+            sb.append("err3");
+        } catch (NumberFormatException e) {
+            sb.append("catch;");
+        } finally {
+            sb.append("finally;");
+        }
+        assertEquals("catch;finally;", sb.toString());
+    }
+
+    @Test
     public void surrogateInStringLiteralsWork() {
         assertEquals(0xDDC2, "a\uDDC2b".charAt(1));
     }
@@ -101,8 +141,12 @@ public class VMTest {
             assertEquals(2, n);
         }
     }
-    private int foo() { return 2; }
-    private void bar() { throw new RuntimeException(); }
+    private int foo() {
+        return 2;
+    }
+    private void bar() {
+        throw new RuntimeException();
+    }
 
     // See https://github.com/konsoletyper/teavm/issues/167
     @Test
@@ -145,6 +189,7 @@ public class VMTest {
     }
 
     @Test
+    @SkipJVM
     public void asyncClinit() {
         assertEquals(0, initCount);
         assertEquals("foo", AsyncClinitClass.foo());
@@ -225,10 +270,56 @@ public class VMTest {
         callback.complete(value);
     }
 
+    @Test
+    public void defaultMethodsSupported() {
+        WithDefaultMethod[] instances = { new WithDefaultMethodDerivedA(), new WithDefaultMethodDerivedB(),
+                new WithDefaultMethodDerivedC() };
+        StringBuilder sb = new StringBuilder();
+        for (WithDefaultMethod instance : instances) {
+            sb.append(instance.foo() + "," + instance.bar() + ";");
+        }
+
+        assertEquals("default,A;default,B;overridden,C;", sb.toString());
+    }
+
+    interface WithDefaultMethod {
+        default String foo() {
+            return "default";
+        }
+
+        String bar();
+    }
+
+    class WithDefaultMethodDerivedA implements WithDefaultMethod {
+        @Override
+        public String bar() {
+            return "A";
+        }
+    }
+
+    class WithDefaultMethodDerivedB implements WithDefaultMethod {
+        @Override
+        public String bar() {
+            return "B";
+        }
+    }
+    class WithDefaultMethodDerivedC implements WithDefaultMethod {
+        @Override
+        public String foo() {
+            return "overridden";
+        }
+
+        @Override
+        public String bar() {
+            return "C";
+        }
+    }
+
+
     @JSBody(script = "return [1, 2]")
     private static native int[] createArray();
 
-    static int initCount = 0;
+    static int initCount;
 
     private static class AsyncClinitClass {
         static String state = "";
@@ -270,7 +361,9 @@ public class VMTest {
 
             try {
                 Thread.sleep(1);
-                wait();
+                synchronized (AsyncClinitClass.this) {
+                    wait();
+                }
             } catch (InterruptedException ie) {
                 instanceState = "error";
                 throw new RuntimeException(ie);
@@ -315,5 +408,36 @@ public class VMTest {
         SubClass() {
             super(ONE);
         }
+    }
+
+    @Test
+    public void indirectDefaultMethod() {
+        PathJoint o = new PathJoint();
+        assertEquals("SecondPath.foo", o.foo());
+    }
+
+    interface FirstPath {
+        default String foo() {
+            return "FirstPath.foo";
+        }
+    }
+
+    interface SecondPath extends FirstPath {
+        @Override
+        default String foo() {
+            return "SecondPath.foo";
+        }
+    }
+
+    class PathJoint implements FirstPath, SecondPath {
+    }
+
+    @Test
+    public void cloneArray() {
+        String[] a = new String[] { "foo" };
+        String[] b = a.clone();
+        assertNotSame(a, b);
+        a[0] = "bar";
+        assertEquals("foo", b[0]);
     }
 }

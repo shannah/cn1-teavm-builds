@@ -11,20 +11,18 @@ target
 .factorypath
 .checkstyle
 .cache-main
+.metadata
 
 # IntelliJ IDEA
 *.iml
 !/all-deps/all-deps.iml
 !/tools/idea/**/*.iml
-.idea/uiDesigner.xml
-.idea/workspace.xml
-.idea/dictionaries/
-.idea/compiler.xml
-.idea/kotlinc.xml
-.idea/encodings.xml
-.idea/misc.xml
-.idea/modules.xml
-.idea/scala_compiler.xml
-.idea/vcs.xml
-.idea/libraries/*
-.idea/artifacts/*
+.idea/*
+!.idea/runConfigurations
+!.idea/scopes
+!.idea/inspectionProfies
+!.idea/codeStyles
+!.idea/copyright
+!.idea/checkstyle-idea.xml
+
+dependency-reduced-pom.xml

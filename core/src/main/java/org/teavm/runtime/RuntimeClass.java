@@ -21,15 +21,18 @@ import org.teavm.interop.Unmanaged;
 public class RuntimeClass extends RuntimeJavaObject {
     public static final int INITIALIZED = 1;
     public static final int PRIMITIVE = 2;
+    public static final int ENUM = 4;
 
     public int size;
     public int flags;
     public int tag;
     public int canary;
+    public RuntimeJavaObject name;
     public RuntimeClass itemType;
     public RuntimeClass arrayType;
     public IsSupertypeFunction isSupertypeOf;
     public RuntimeClass parent;
+    public Address enumValues;
     public Address layout;
 
     @Unmanaged

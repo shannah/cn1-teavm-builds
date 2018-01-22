@@ -16,16 +16,21 @@
 package org.teavm.idea.debug;
 
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.XCompositeNode;
+import com.intellij.xdebugger.frame.XNamedValue;
 import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.teavm.debugging.CallFrame;
+import org.teavm.debugging.Value;
 import org.teavm.debugging.Variable;
 import org.teavm.debugging.information.SourceLocation;
+import org.teavm.debugging.javascript.JavaScriptCallFrame;
+import org.teavm.debugging.javascript.JavaScriptLocation;
 
 class TeaVMStackFrame extends XStackFrame {
     private TeaVMExecutionStack stack;
@@ -50,6 +55,18 @@ class TeaVMStackFrame extends XStackFrame {
                 }
                 line = innerLocation.getLine() - 1;
             }
+            if (virtualFile == null) {
+                JavaScriptCallFrame jsFrame = innerFrame.getOriginalCallFrame();
+                if (jsFrame != null) {
+                    JavaScriptLocation jsLocation = jsFrame.getLocation();
+                    if (jsLocation != null) {
+                        virtualFile = VirtualFileManager.getInstance().findFileByUrl(jsLocation.getScript());
+                        if (virtualFile != null) {
+                            line = jsLocation.getLine();
+                        }
+                    }
+                }
+            }
             position = XDebuggerUtil.getInstance().createPosition(virtualFile, line);
         }
         return position;
@@ -59,8 +76,14 @@ class TeaVMStackFrame extends XStackFrame {
     public void computeChildren(@NotNull XCompositeNode node) {
         XValueChildrenList children = new XValueChildrenList();
         for (Variable variable : innerFrame.getVariables().values()) {
-            children.add(new TeaVMValue(variable.getName(), true, variable.getValue()));
+            children.add(createValueNode(variable.getName(), true, variable.getValue()));
         }
         node.addChildren(children, true);
+    }
+
+    static XNamedValue createValueNode(String name, boolean root, Value value) {
+        return !value.getType().startsWith("@")
+                ? new TeaVMValue(name, root, value)
+                : new TeaVMOriginalValue(name, root, value.getOriginalValue());
     }
 }

@@ -20,10 +20,6 @@ import org.teavm.vm.TeaVMPhase;
 import org.teavm.vm.TeaVMProgressFeedback;
 import org.teavm.vm.TeaVMProgressListener;
 
-/**
- *
- * @author Alexey Andreev
- */
 class TeaVMEclipseProgressListener implements TeaVMProgressListener {
     private TeaVMProjectBuilder builder;
     private IProgressMonitor progressMonitor;
@@ -47,11 +43,11 @@ class TeaVMEclipseProgressListener implements TeaVMProgressListener {
                 case DECOMPILATION:
                     taskName = "Decompiling";
                     break;
-                case DEPENDENCY_CHECKING:
+                case DEPENDENCY_ANALYSIS:
                     taskName = "Dependency checking";
                     break;
-                case DEVIRTUALIZATION:
-                    taskName = "Applying devirtualization";
+                case OPTIMIZATION:
+                    taskName = "Optimizing";
                     break;
                 case LINKING:
                     taskName = "Linking";

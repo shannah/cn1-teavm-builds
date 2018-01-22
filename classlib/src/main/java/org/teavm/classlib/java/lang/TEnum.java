@@ -18,11 +18,6 @@ package org.teavm.classlib.java.lang;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.interop.Rename;
 
-/**
- *
- * @author Alexey Andreev
- * @param <E> type of enum.
- */
 public abstract class TEnum<E extends TEnum<E>> extends TObject implements TComparable<E>, TSerializable {
     private TString name;
     private int ordinal;
@@ -62,7 +57,8 @@ public abstract class TEnum<E extends TEnum<E>> extends TObject implements TComp
 
     @SuppressWarnings("unchecked")
     public final TClass<E> getDeclaringClass() {
-        return (TClass<E>) (Object) getClass();
+        Class<E> result = (Class<E>) getClass();
+        return (TClass<E>) (Object) (result.getSuperclass().equals(Enum.class) ? result : result.getSuperclass());
     }
 
     @Override

@@ -15,12 +15,6 @@
  */
 package org.teavm.classlib.java.util;
 
-
-/**
- *
- * @author Alexey Andreev
- * @param <E>
- */
 public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque<E> {
     static class Entry<E> {
         E item;
@@ -95,9 +89,6 @@ public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque
 
     @Override
     public boolean offer(E e) {
-        if (e == null) {
-            throw new IllegalArgumentException("Element can't be null");
-        }
         Entry<E> entry = new Entry<>();
         entry.item = e;
         entry.next = firstEntry;
@@ -114,11 +105,10 @@ public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque
 
     @Override
     public E remove() {
-        E elem = poll();
-        if (elem == null) {
+        if (isEmpty()) {
             throw new TNoSuchElementException();
         }
-        return elem;
+        return poll();
     }
 
     @Override
@@ -158,9 +148,6 @@ public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque
 
     @Override
     public void addLast(E e) {
-        if (e == null) {
-            throw new IllegalArgumentException("Element can't be null");
-        }
         Entry<E> entry = new Entry<>();
         entry.item = e;
         entry.previous = lastEntry;
@@ -193,11 +180,10 @@ public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque
 
     @Override
     public E removeLast() {
-        E elem = pollLast();
-        if (elem == null) {
+        if (isEmpty()) {
             throw new TNoSuchElementException();
         }
-        return elem;
+        return pollLast();
     }
 
     @Override

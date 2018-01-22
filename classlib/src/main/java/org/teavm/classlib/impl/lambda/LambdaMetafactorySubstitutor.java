@@ -34,6 +34,9 @@ import org.teavm.model.emit.ProgramEmitter;
 import org.teavm.model.emit.ValueEmitter;
 
 public class LambdaMetafactorySubstitutor implements BootstrapMethodSubstitutor {
+    private static final int FLAG_SERIALIZABLE = 1;
+    private static final int FLAG_MARKERS = 2;
+    private static final int FLAG_BRIDGES = 4;
     private int lambdaIndex;
 
     @Override
@@ -84,15 +87,42 @@ public class LambdaMetafactorySubstitutor implements BootstrapMethodSubstitutor 
         }
 
         ValueEmitter result = invoke(pe, implMethod, passedArguments);
-        if (result != null) {
+        ValueType expectedResult = instantiatedMethodType[instantiatedMethodType.length - 1];
+        if (result != null && expectedResult != ValueType.VOID) {
             ValueType actualResult = implementorSignature[implementorSignature.length - 1];
-            ValueType expectedResult = instantiatedMethodType[instantiatedMethodType.length - 1];
             tryConvertArgument(result, actualResult, expectedResult).returnValue();
         } else {
             pe.exit();
         }
 
         implementor.addMethod(worker);
+
+        // Handle altMetafactory case
+        if (callSite.getBootstrapArguments().size() > 3) {
+            int flags = callSite.getBootstrapArguments().get(3).getInt();
+
+            if ((flags & FLAG_SERIALIZABLE) != 0) {
+                implementor.getInterfaces().add("java.io.Serializable");
+            }
+
+            int bootstrapArgIndex = 4;
+            if ((flags & FLAG_MARKERS) != 0) {
+                int markerCount = callSite.getBootstrapArguments().get(bootstrapArgIndex++).getInt();
+                for (int i = 0; i < markerCount; ++i) {
+                    ValueType markerType = callSite.getBootstrapArguments().get(bootstrapArgIndex++).getValueType();
+                    implementor.getInterfaces().add(((ValueType.Object) markerType).getClassName());
+                }
+            }
+
+            if ((flags & FLAG_BRIDGES) != 0) {
+                int bridgeCount = callSite.getBootstrapArguments().get(bootstrapArgIndex++).getInt();
+                for (int i = 0; i < bridgeCount; ++i) {
+                    ValueType[] bridgeType = callSite.getBootstrapArguments().get(bootstrapArgIndex++).getMethodType();
+                    createBridge(classSource, implementor, callSite.getCalledMethod().getName(), instantiatedMethodType,
+                            bridgeType);
+                }
+            }
+        }
 
         callSite.getAgent().submitClass(implementor);
         return callerPe.construct(ctor.getOwnerName(), callSite.getArguments().toArray(new ValueEmitter[0]));

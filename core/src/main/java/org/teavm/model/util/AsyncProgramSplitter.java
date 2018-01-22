@@ -48,7 +48,7 @@ public class AsyncProgramSplitter {
     private List<Part> parts = new ArrayList<>();
     private Map<Instruction, Integer> partMap = new HashMap<>();
     private ClassReaderSource classSource;
-    private Set<MethodReference> asyncMethods = new HashSet<>();
+    private Set<MethodReference> asyncMethods;
     private Program program;
 
     public AsyncProgramSplitter(ClassReaderSource classSource, Set<MethodReference> asyncMethods) {
@@ -68,11 +68,12 @@ public class AsyncProgramSplitter {
         initialStep.targetPart = initialPart;
         Queue<Step> queue = new ArrayDeque<>();
         queue.add(initialStep);
+        Set<BasicBlock> visitedBlocks = new HashSet<>();
 
         taskLoop: while (!queue.isEmpty()) {
             Step step = queue.remove();
             BasicBlock targetBlock = step.targetPart.program.basicBlockAt(step.source);
-            if (targetBlock.instructionCount() > 0) {
+            if (!visitedBlocks.add(targetBlock)) {
                 continue;
             }
             BasicBlock sourceBlock = program.basicBlockAt(step.source);

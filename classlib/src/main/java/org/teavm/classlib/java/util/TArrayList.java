@@ -18,13 +18,9 @@ package org.teavm.classlib.java.util;
 import java.util.Arrays;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.*;
+import org.teavm.classlib.java.util.function.TUnaryOperator;
 import org.teavm.interop.Rename;
 
-/**
- *
- * @author Alexey Andreev
- * @param <E>
- */
 public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSerializable {
     private E[] array;
     private int size;
@@ -53,7 +49,10 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
 
     public void ensureCapacity(int minCapacity) {
         if (array.length < minCapacity) {
-            array = TArrays.copyOf(array, array.length + TMath.max(5, array.length / 2));
+            int newLength = array.length < Integer.MAX_VALUE / 2
+                    ? Math.max(minCapacity, Math.max(array.length * 2, 5))
+                    : Integer.MAX_VALUE;
+            array = TArrays.copyOf(array, newLength);
         }
     }
 
@@ -79,6 +78,14 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
         E old = array[index];
         array[index] = element;
         return old;
+    }
+
+    @Override
+    public boolean add(E element) {
+        ensureCapacity(size + 1);
+        array[size++] = element;
+        ++modCount;
+        return true;
     }
 
     @Override
@@ -171,6 +178,13 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
     private void checkIndexForAdd(int index) {
         if (index < 0 || index > size) {
             throw new TIndexOutOfBoundsException();
+        }
+    }
+
+    @Override
+    public void replaceAll(TUnaryOperator<E> operator) {
+        for (int i = 0; i < size; ++i) {
+            array[i] = operator.apply(array[i]);
         }
     }
 }

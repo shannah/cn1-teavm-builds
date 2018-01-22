@@ -24,4 +24,5 @@ import org.teavm.interop.Unmanaged;
 public class CallSite extends Structure {
     public int handlerCount;
     public ExceptionHandler firstHandler;
+    public CallSiteLocation location;
 }

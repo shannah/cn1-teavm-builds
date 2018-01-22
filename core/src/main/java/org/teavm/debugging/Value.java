@@ -19,10 +19,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.teavm.debugging.javascript.JavaScriptValue;
 
-/**
- *
- * @author Alexey Andreev
- */
 public class Value {
     private Debugger debugger;
     private JavaScriptValue jsValue;
@@ -60,5 +56,9 @@ public class Value {
             return null;
         }
         return jsValue.getInstanceId();
+    }
+
+    public JavaScriptValue getOriginalValue() {
+        return jsValue;
     }
 }
