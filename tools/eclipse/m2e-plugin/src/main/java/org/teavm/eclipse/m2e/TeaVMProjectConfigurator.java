@@ -88,7 +88,7 @@ public class TeaVMProjectConfigurator extends AbstractProjectConfigurator {
 
     private void configureProfile(MojoExecution execution, TeaVMProfile profile, IProgressMonitor monitor)
             throws CoreException {
-        monitor.beginTask("Configuring profile " + profile.getName(), 120);
+        monitor.beginTask("Configuring profile " + profile.getName(), 110);
         String buildDir = getProjectBuildDirectory();
 
         String mainClass = maven.getMojoParameterValue(mavenSession, execution, "mainClass", String.class);
@@ -102,10 +102,6 @@ public class TeaVMProjectConfigurator extends AbstractProjectConfigurator {
 
         String targetFileName = maven.getMojoParameterValue(mavenSession, execution, "targetFileName", String.class);
         profile.setTargetFileName(targetFileName != null ? targetFileName : "classes.js");
-        monitor.worked(10);
-
-        Boolean minifying = maven.getMojoParameterValue(mavenSession, execution, "minifying", Boolean.class);
-        profile.setMinifying(minifying != null ? minifying : true);
         monitor.worked(10);
 
         String runtime = maven.getMojoParameterValue(mavenSession, execution, "runtime", String.class);
@@ -144,23 +140,21 @@ public class TeaVMProjectConfigurator extends AbstractProjectConfigurator {
         profile.setTransformers(transformers != null ? transformers : new String[0]);
         monitor.worked(10);
 
-        profile.setClassAliases(readClassAliases(execution));
+        profile.setClassesToPreserve(readClassesToPreserve(execution));
         monitor.worked(10);
 
         monitor.done();
     }
 
-    private Map<String, String> readClassAliases(MojoExecution execution) {
-        Map<String, String> aliases = new HashMap<>();
-        Xpp3Dom aliasesElem = execution.getConfiguration().getChild("classAliases");
-        if (aliasesElem != null) {
-            for (Xpp3Dom item : aliasesElem.getChildren()) {
-                String className = item.getChild("className").getValue();
-                String alias = item.getChild("alias").getValue();
-                aliases.put(className, alias);
+    private Set<? extends String> readClassesToPreserve(MojoExecution execution) {
+        Set<String> classes = new HashSet<>();
+        Xpp3Dom classesElem = execution.getConfiguration().getChild("classesToPreserve");
+        if (classesElem != null) {
+            for (Xpp3Dom item : classesElem.getChildren()) {
+                classes.add(item.getValue());
             }
         }
-        return aliases;
+        return classes;
     }
 
     private String getProjectBuildDirectory() throws CoreException {

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014 Alexey Andreev.
+ *  Copyright 2017 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,25 +13,17 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.tooling;
 
-public class ClassAlias {
-    private String className;
-    private String alias;
+package org.teavm.classlib.java.net;
 
-    public String getClassName() {
-        return className;
+import java.io.IOException;
+
+public class TUnknownServiceException extends IOException {
+    public TUnknownServiceException() {
+        super();
     }
 
-    public void setClassName(String className) {
-        this.className = className;
-    }
-
-    public String getAlias() {
-        return alias;
-    }
-
-    public void setAlias(String alias) {
-        this.alias = alias;
+    public TUnknownServiceException(String detailMessage) {
+        super(detailMessage);
     }
 }

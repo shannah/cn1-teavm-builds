@@ -11,6 +11,7 @@ target
 .factorypath
 .checkstyle
 .cache-main
+.metadata
 
 # IntelliJ IDEA
 *.iml
@@ -23,3 +24,5 @@ target
 !.idea/codeStyles
 !.idea/copyright
 !.idea/checkstyle-idea.xml
+
+dependency-reduced-pom.xml
