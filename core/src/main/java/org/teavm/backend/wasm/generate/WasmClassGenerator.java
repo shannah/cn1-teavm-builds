@@ -15,8 +15,8 @@
  */
 package org.teavm.backend.wasm.generate;
 
+import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.carrotsearch.hppc.ObjectIntMap;
-import com.carrotsearch.hppc.ObjectIntOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -50,7 +50,9 @@ import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
 public class WasmClassGenerator {
+    private ClassReaderSource processedClassSource;
     private ClassReaderSource classSource;
+    public final NameProvider names;
     private Map<ValueType, ClassBinaryData> binaryDataMap = new LinkedHashMap<>();
     private BinaryWriter binaryWriter;
     private Map<MethodReference, Integer> functions = new HashMap<>();
@@ -72,9 +74,11 @@ public class WasmClassGenerator {
             DataPrimitives.ADDRESS, /* item type */
             DataPrimitives.ADDRESS, /* array type */
             DataPrimitives.INT, /* isInstance function */
+            DataPrimitives.INT, /* init function */
             DataPrimitives.ADDRESS, /* parent */
             DataPrimitives.ADDRESS, /* enum values */
-            DataPrimitives.ADDRESS  /* layout */);
+            DataPrimitives.ADDRESS, /* layout */
+            DataPrimitives.ADDRESS  /* simple name */);
     private IntegerArray staticGcRoots = new IntegerArray(1);
     private int staticGcRootsAddress;
 
@@ -86,17 +90,22 @@ public class WasmClassGenerator {
     private static final int CLASS_ITEM_TYPE = 6;
     private static final int CLASS_ARRAY_TYPE = 7;
     private static final int CLASS_IS_INSTANCE = 8;
-    private static final int CLASS_PARENT = 9;
-    private static final int CLASS_ENUM_VALUES = 10;
-    private static final int CLASS_LAYOUT = 11;
+    private static final int CLASS_INIT = 9;
+    private static final int CLASS_PARENT = 10;
+    private static final int CLASS_ENUM_VALUES = 11;
+    private static final int CLASS_LAYOUT = 12;
+    private static final int CLASS_SIMPLE_NAME = 13;
 
-    public WasmClassGenerator(ClassReaderSource classSource, VirtualTableProvider vtableProvider,
-            TagRegistry tagRegistry, BinaryWriter binaryWriter) {
+    public WasmClassGenerator(ClassReaderSource processedClassSource, ClassReaderSource classSource,
+            VirtualTableProvider vtableProvider, TagRegistry tagRegistry, BinaryWriter binaryWriter,
+            NameProvider names) {
+        this.processedClassSource = processedClassSource;
         this.classSource = classSource;
         this.vtableProvider = vtableProvider;
         this.tagRegistry = tagRegistry;
         this.binaryWriter = binaryWriter;
         this.stringPool = new WasmStringPool(this, binaryWriter);
+        this.names = names;
     }
 
     public WasmStringPool getStringPool() {
@@ -168,7 +177,11 @@ public class WasmClassGenerator {
             binaryData.data.setAddress(CLASS_ITEM_TYPE, itemBinaryData.start);
             binaryData.data.setInt(CLASS_IS_INSTANCE, functionTable.size());
             binaryData.data.setInt(CLASS_CANARY, RuntimeClass.computeCanary(4, 0));
-            functionTable.add(WasmMangling.mangleIsSupertype(type));
+            functionTable.add(names.forSupertypeFunction(type));
+            binaryData.data.setAddress(CLASS_NAME, stringPool.getStringPointer(type.toString().replace('/', '.')));
+            binaryData.data.setAddress(CLASS_SIMPLE_NAME, 0);
+            binaryData.data.setInt(CLASS_INIT, -1);
+            binaryData.data.setAddress(CLASS_PARENT, getClassPointer(ValueType.object("java.lang.Object")));
             binaryData.start = binaryWriter.append(vtableSize > 0 ? wrapper : binaryData.data);
 
             itemBinaryData.data.setAddress(CLASS_ARRAY_TYPE, binaryData.start);
@@ -180,7 +193,46 @@ public class WasmClassGenerator {
         value.setInt(CLASS_SIZE, size);
         value.setInt(CLASS_FLAGS, RuntimeClass.PRIMITIVE);
         value.setInt(CLASS_IS_INSTANCE, functionTable.size());
-        functionTable.add(WasmMangling.mangleIsSupertype(type));
+        value.setAddress(CLASS_SIMPLE_NAME, 0);
+        value.setInt(CLASS_INIT, -1);
+        functionTable.add(names.forSupertypeFunction(type));
+
+        String name;
+        if (type == ValueType.VOID) {
+            name = "void";
+        } else {
+            switch (((ValueType.Primitive) type).getKind()) {
+                case BOOLEAN:
+                    name = "boolean";
+                    break;
+                case BYTE:
+                    name = "byte";
+                    break;
+                case SHORT:
+                    name = "short";
+                    break;
+                case CHARACTER:
+                    name = "char";
+                    break;
+                case INTEGER:
+                    name = "int";
+                    break;
+                case LONG:
+                    name = "long";
+                    break;
+                case FLOAT:
+                    name = "float";
+                    break;
+                case DOUBLE:
+                    name = "double";
+                    break;
+                default:
+                    name = "";
+            }
+        }
+
+        value.setAddress(CLASS_NAME, stringPool.getStringPointer(name));
+
         return value;
     }
 
@@ -217,7 +269,7 @@ public class WasmClassGenerator {
         header.setInt(CLASS_CANARY, RuntimeClass.computeCanary(occupiedSize, tag));
         header.setAddress(CLASS_NAME, stringPool.getStringPointer(name));
         header.setInt(CLASS_IS_INSTANCE, functionTable.size());
-        functionTable.add(WasmMangling.mangleIsSupertype(ValueType.object(name)));
+        functionTable.add(names.forSupertypeFunction(ValueType.object(name)));
         header.setAddress(CLASS_PARENT, parentPtr);
 
         if (vtable != null) {
@@ -241,13 +293,22 @@ public class WasmClassGenerator {
             staticGcRoots.add(binaryData.fieldLayout.get(field.getFieldName()));
         }
 
-        ClassReader cls = classSource.get(name);
+        ClassReader cls = processedClassSource.get(name);
         if (cls != null && cls.hasModifier(ElementModifier.ENUM)) {
             header.setAddress(CLASS_ENUM_VALUES, generateEnumValues(cls, binaryData));
             flags |= RuntimeClass.ENUM;
         }
 
+        if (cls != null && binaryData.start >= 0
+                && cls.getMethod(new MethodDescriptor("<clinit>", ValueType.VOID)) != null) {
+            header.setInt(CLASS_INIT, functionTable.size());
+            functionTable.add(names.forClassInitializer(name));
+        } else {
+            header.setInt(CLASS_INIT, -1);
+        }
+
         header.setInt(CLASS_FLAGS, flags);
+        header.setAddress(CLASS_SIMPLE_NAME, 0);
 
         return vtable != null ? wrapper : header;
     }
@@ -322,7 +383,7 @@ public class WasmClassGenerator {
             } else {
                 methodIndex = functions.computeIfAbsent(vtableEntry.getImplementor(), implementor -> {
                     int result = functionTable.size();
-                    functionTable.add(WasmMangling.mangleMethod(implementor));
+                    functionTable.add(names.forMethod(implementor));
                     return result;
                 });
             }
@@ -409,7 +470,11 @@ public class WasmClassGenerator {
             int desiredAlignment = getTypeSize(field.getType());
             if (field.hasModifier(ElementModifier.STATIC)) {
                 DataType type = asDataType(field.getType());
-                data.fieldLayout.put(field.getName(), binaryWriter.append(type.createValue()));
+                DataValue value = type.createValue();
+                if (field.getInitialValue() != null) {
+                    setInitialValue(field.getType(), value, field.getInitialValue());
+                }
+                data.fieldLayout.put(field.getName(), binaryWriter.append(value));
             } else {
                 int offset = align(data.size, desiredAlignment);
                 data.fieldLayout.put(field.getName(), offset);
@@ -418,6 +483,41 @@ public class WasmClassGenerator {
             if (data.alignment == 0) {
                 data.alignment = desiredAlignment;
             }
+        }
+    }
+
+    private void setInitialValue(ValueType type, DataValue data, Object value) {
+        if (value instanceof Number) {
+            switch (((ValueType.Primitive) type).getKind()) {
+                case BYTE:
+                    data.setByte(0, ((Number) value).byteValue());
+                    break;
+                case SHORT:
+                    data.setShort(0, ((Number) value).shortValue());
+                    break;
+                case CHARACTER:
+                    data.setShort(0, ((Number) value).shortValue());
+                    break;
+                case INTEGER:
+                    data.setInt(0, ((Number) value).intValue());
+                    break;
+                case LONG:
+                    data.setLong(0, ((Number) value).longValue());
+                    break;
+                case FLOAT:
+                    data.setFloat(0, ((Number) value).floatValue());
+                    break;
+                case DOUBLE:
+                    data.setDouble(0, ((Number) value).doubleValue());
+                    break;
+                case BOOLEAN:
+                    data.setByte(0, ((Number) value).byteValue());
+                    break;
+            }
+        } else if (value instanceof Boolean) {
+            data.setByte(0, (Boolean) value ? (byte) 1 : 0);
+        } else if (value instanceof String) {
+            data.setAddress(0, stringPool.getStringPointer((String) value));
         }
     }
 
@@ -499,7 +599,7 @@ public class WasmClassGenerator {
     }
 
     public boolean hasClinit(String className) {
-        if (isStructure(className)) {
+        if (isStructure(className) || className.equals(Address.class.getName())) {
             return false;
         }
         ClassReader cls = classSource.get(className);
@@ -515,7 +615,7 @@ public class WasmClassGenerator {
         int alignment;
         int start;
         boolean isInferface;
-        ObjectIntMap<String> fieldLayout = new ObjectIntOpenHashMap<>();
+        ObjectIntMap<String> fieldLayout = new ObjectIntHashMap<>();
         DataValue data;
         ClassReader cls;
         boolean function;

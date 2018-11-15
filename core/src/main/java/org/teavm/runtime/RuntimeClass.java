@@ -18,22 +18,36 @@ package org.teavm.runtime;
 import org.teavm.interop.Address;
 import org.teavm.interop.Unmanaged;
 
-public class RuntimeClass extends RuntimeJavaObject {
+public class RuntimeClass extends RuntimeObject {
     public static final int INITIALIZED = 1;
     public static final int PRIMITIVE = 2;
     public static final int ENUM = 4;
+
+    public static final int PRIMITIVE_SHIFT = 3;
+    public static final int PRIMITIVE_MASK = 15;
+    public static final int BOOLEAN_PRIMITIVE = 0;
+    public static final int BYTE_PRIMITIVE = 1;
+    public static final int SHORT_PRIMITIVE = 2;
+    public static final int CHAR_PRIMITIVE = 3;
+    public static final int INT_PRIMITIVE = 4;
+    public static final int LONG_PRIMITIVE = 5;
+    public static final int FLOAT_PRIMITIVE = 6;
+    public static final int DOUBLE_PRIMITIVE = 7;
+    public static final int VOID_PRIMITIVE = 8;
 
     public int size;
     public int flags;
     public int tag;
     public int canary;
-    public RuntimeJavaObject name;
+    public RuntimeObject name;
     public RuntimeClass itemType;
     public RuntimeClass arrayType;
     public IsSupertypeFunction isSupertypeOf;
+    public InitFunction init;
     public RuntimeClass parent;
     public Address enumValues;
     public Address layout;
+    public RuntimeObject simpleName;
 
     @Unmanaged
     public static int computeCanary(int size, int tag) {
@@ -47,6 +61,12 @@ public class RuntimeClass extends RuntimeJavaObject {
 
     @Unmanaged
     public static RuntimeClass getClass(RuntimeObject object) {
-        return Address.fromInt(object.classReference << 3).toStructure();
+        return unpack(object.classReference);
     }
+
+    @Unmanaged
+    public static native RuntimeClass unpack(int n);
+
+    @Unmanaged
+    public final native int pack();
 }

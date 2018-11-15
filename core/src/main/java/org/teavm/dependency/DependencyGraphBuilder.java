@@ -148,20 +148,25 @@ class DependencyGraphBuilder {
         if (method.hasModifier(ElementModifier.SYNCHRONIZED)) {
             List<DependencyNode> syncNodes = new ArrayList<>();
 
-            MethodDependency methodDep = dependencyAnalyzer.linkMethod(
+            MethodDependency methodDep;
+            if (dependencyAnalyzer.asyncSupported) {
+                methodDep = dependencyAnalyzer.linkMethod(
                         new MethodReference(Object.class, "monitorEnter", Object.class, void.class), null);
-            syncNodes.add(methodDep.getVariable(1));
-            methodDep.use();
+                syncNodes.add(methodDep.getVariable(1));
+                methodDep.use();
+            }
 
             methodDep = dependencyAnalyzer.linkMethod(
                     new MethodReference(Object.class, "monitorEnterSync", Object.class, void.class), null);
             syncNodes.add(methodDep.getVariable(1));
             methodDep.use();
 
-            methodDep = dependencyAnalyzer.linkMethod(
-                    new MethodReference(Object.class, "monitorExit", Object.class, void.class), null);
-            syncNodes.add(methodDep.getVariable(1));
-            methodDep.use();
+            if (dependencyAnalyzer.asyncSupported) {
+                methodDep = dependencyAnalyzer.linkMethod(
+                        new MethodReference(Object.class, "monitorExit", Object.class, void.class), null);
+                syncNodes.add(methodDep.getVariable(1));
+                methodDep.use();
+            }
 
             methodDep = dependencyAnalyzer.linkMethod(
                     new MethodReference(Object.class, "monitorExitSync", Object.class, void.class), null);
@@ -237,7 +242,8 @@ class DependencyGraphBuilder {
                 for (int k = 0; k < indy.getArguments().size(); ++k) {
                     arguments.add(pe.var(indy.getArguments().get(k), indy.getMethod().parameterType(k)));
                 }
-                DynamicCallSite callSite = new DynamicCallSite(indy.getMethod(),
+                DynamicCallSite callSite = new DynamicCallSite(
+                        methodDep.getReference(), indy.getMethod(),
                         indy.getInstance() != null ? pe.var(indy.getInstance(),
                                 ValueType.object(methodDep.getMethod().getOwnerName())) : null,
                         arguments, indy.getBootstrapMethod(), indy.getBootstrapArguments(),
@@ -315,7 +321,7 @@ class DependencyGraphBuilder {
         private final Set<MethodReference> knownMethods = new HashSet<>();
         private final BitSet knownTypes = new BitSet();
         private ExceptionConsumer exceptionConsumer;
-        private SuperClassFilter filter;
+        private DependencyTypeFilter filter;
 
         VirtualCallConsumer(DependencyNode node, String filterClass,
                 MethodDescriptor methodDesc, DependencyAnalyzer analyzer, DependencyNode[] parameters,
@@ -397,6 +403,8 @@ class DependencyGraphBuilder {
                         sb.append(cst.toString());
                     }
                     node.getClassValueNode().propagate(dependencyAnalyzer.getType(sb.toString()));
+                } else {
+                    node.getClassValueNode().propagate(dependencyAnalyzer.getType("~" + cst.toString()));
                 }
             }
             while (cst instanceof ValueType.Array) {
@@ -435,13 +443,29 @@ class DependencyGraphBuilder {
             ClassReaderSource classSource = dependencyAnalyzer.getClassSource();
             if (targetType instanceof ValueType.Object) {
                 String targetClsName = ((ValueType.Object) targetType).getClassName();
-                final ClassReader targetClass = classSource.get(targetClsName);
+                ClassReader targetClass = classSource.get(targetClsName);
                 if (targetClass != null && !(targetClass.getName().equals("java.lang.Object"))) {
                     if (valueNode != null && receiverNode != null) {
                         valueNode.connect(receiverNode, dependencyAnalyzer.getSuperClassFilter(targetClass.getName()));
                     }
                     return;
                 }
+            } else if (targetType instanceof ValueType.Array) {
+                ValueType itemType = targetType;
+                while (itemType instanceof ValueType.Array) {
+                    itemType = ((ValueType.Array) itemType).getItemType();
+                }
+                if (itemType instanceof ValueType.Object) {
+                    ClassReader targetClass = classSource.get(((ValueType.Object) itemType).getClassName());
+                    if (targetClass == null) {
+                        valueNode.connect(receiverNode);
+                        return;
+                    }
+                }
+                if (valueNode != null && receiverNode != null) {
+                    valueNode.connect(receiverNode, dependencyAnalyzer.getSuperClassFilter(targetType.toString()));
+                }
+                return;
             }
             if (valueNode != null && receiverNode != null) {
                 valueNode.connect(receiverNode);
@@ -574,6 +598,9 @@ class DependencyGraphBuilder {
         @Override
         public void getElement(VariableReader receiver, VariableReader array, VariableReader index,
                 ArrayElementType type) {
+            if (isPrimitive(type)) {
+                return;
+            }
             DependencyNode arrayNode = nodes[array.getIndex()];
             DependencyNode receiverNode = nodes[receiver.getIndex()];
             if (arrayNode != null && receiverNode != null && receiverNode != arrayNode.getArrayItem()) {
@@ -584,11 +611,18 @@ class DependencyGraphBuilder {
         @Override
         public void putElement(VariableReader array, VariableReader index, VariableReader value,
                 ArrayElementType type) {
+            if (isPrimitive(type)) {
+                return;
+            }
             DependencyNode valueNode = nodes[value.getIndex()];
             DependencyNode arrayNode = nodes[array.getIndex()];
             if (valueNode != null && arrayNode != null && valueNode != arrayNode.getArrayItem()) {
                 valueNode.connect(arrayNode.getArrayItem());
             }
+        }
+
+        private boolean isPrimitive(ArrayElementType type) {
+            return type != ArrayElementType.OBJECT;
         }
 
         @Override
@@ -686,7 +720,9 @@ class DependencyGraphBuilder {
         public void nullCheck(VariableReader receiver, VariableReader value) {
             DependencyNode valueNode = nodes[value.getIndex()];
             DependencyNode receiverNode = nodes[receiver.getIndex()];
-            valueNode.connect(receiverNode);
+            if (valueNode != null) {
+                valueNode.connect(receiverNode);
+            }
             dependencyAnalyzer.linkMethod(new MethodReference(NullPointerException.class, "<init>", void.class),
                     new CallLocation(caller.getMethod(), currentLocation)).use();
             currentExceptionConsumer.consume(dependencyAnalyzer.getType("java.lang.NullPointerException"));
@@ -694,25 +730,29 @@ class DependencyGraphBuilder {
 
         @Override
         public void monitorEnter(VariableReader objectRef) {
-             MethodDependency methodDep = dependencyAnalyzer.linkMethod(
+            if (dependencyAnalyzer.asyncSupported) {
+                MethodDependency methodDep = dependencyAnalyzer.linkMethod(
                         new MethodReference(Object.class, "monitorEnter", Object.class, void.class), null);
-             nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
-             methodDep.use();
+                nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
+                methodDep.use();
+            }
 
-             methodDep = dependencyAnalyzer.linkMethod(
+            MethodDependency methodDep = dependencyAnalyzer.linkMethod(
                      new MethodReference(Object.class, "monitorEnterSync", Object.class, void.class), null);
-             nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
-             methodDep.use();
+            nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
+            methodDep.use();
         }
 
         @Override
         public void monitorExit(VariableReader objectRef) {
-            MethodDependency methodDep = dependencyAnalyzer.linkMethod(
-                    new MethodReference(Object.class, "monitorExit", Object.class, void.class), null);
-            nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
-            methodDep.use();
+            if (dependencyAnalyzer.asyncSupported) {
+                MethodDependency methodDep = dependencyAnalyzer.linkMethod(
+                        new MethodReference(Object.class, "monitorExit", Object.class, void.class), null);
+                nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
+                methodDep.use();
+            }
 
-            methodDep = dependencyAnalyzer.linkMethod(
+            MethodDependency methodDep = dependencyAnalyzer.linkMethod(
                     new MethodReference(Object.class, "monitorExitSync", Object.class, void.class), null);
             nodes[objectRef.getIndex()].connect(methodDep.getVariable(1));
             methodDep.use();

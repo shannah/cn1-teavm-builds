@@ -15,7 +15,7 @@
  */
 package org.teavm.dependency;
 
-import com.carrotsearch.hppc.IntOpenHashSet;
+import com.carrotsearch.hppc.IntHashSet;
 import com.carrotsearch.hppc.IntSet;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -123,11 +123,12 @@ public class DependencyTest {
                 return TeaVMProgressFeedback.CONTINUE;
             }
         });
+        vm.add(new DependencyTestPatcher(DependencyTestData.class.getName(), testName.getMethodName()));
         vm.installPlugins();
 
         MethodReference testMethod = new MethodReference(DependencyTestData.class,
                 testName.getMethodName(), void.class);
-        vm.entryPoint(testMethod).withValue(0, DependencyTestData.class.getName());
+        vm.entryPoint(DependencyTestData.class.getName());
         vm.build(fileName -> new ByteArrayOutputStream(), "out");
 
         List<Problem> problems = vm.getProblemProvider().getSevereProblems();
@@ -275,7 +276,7 @@ public class DependencyTest {
             int value = aliases[insn.getValue().getIndex()];
             IntSet items = arrayContent[array];
             if (items == null) {
-                items = new IntOpenHashSet();
+                items = new IntHashSet();
                 arrayContent[array] = items;
             }
             items.add(value);

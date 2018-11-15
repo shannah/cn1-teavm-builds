@@ -24,7 +24,6 @@ import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.MethodDependency;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassReader;
-import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 
@@ -40,13 +39,26 @@ public class ArrayNativeGenerator implements Generator, DependencyPlugin {
     public void methodReached(DependencyAgent agent, MethodDependency method, CallLocation location) {
         switch (method.getReference().getName()) {
             case "getLength":
-                achieveGetLength(agent, method);
+                reachGetLength(agent, method);
                 break;
-            case "newInstanceImpl":
-                method.getResult().propagate(agent.getType("[java.lang.Object"));
+            case "newInstance":
+                method.getVariable(1).getClassValueNode().addConsumer(t -> {
+                    String arrayTypeName;
+                    if (t.getName().startsWith("[")) {
+                        arrayTypeName = t.getName();
+                    } else if (t.getName().startsWith("~")) {
+                        arrayTypeName = t.getName().substring(1);
+                    } else {
+                        arrayTypeName = ValueType.object(t.getName()).toString();
+                    }
+                    method.getResult().propagate(agent.getType("[" + arrayTypeName));
+                });
                 break;
             case "getImpl":
-                achieveGet(agent, method);
+                reachGet(agent, method);
+                break;
+            case "setImpl":
+                reachSet(agent, method);
                 break;
         }
     }
@@ -63,6 +75,9 @@ public class ArrayNativeGenerator implements Generator, DependencyPlugin {
             case "getImpl":
                 generateGet(context, writer);
                 break;
+            case "setImpl":
+                generateSet(context, writer);
+                break;
         }
     }
 
@@ -70,14 +85,13 @@ public class ArrayNativeGenerator implements Generator, DependencyPlugin {
         String array = context.getParameterName(1);
         writer.append("if (" + array + " === null || " + array + ".constructor.$meta.item === undefined) {")
                 .softNewLine().indent();
-        String clsName = "java.lang.IllegalArgumentException";
-        MethodDescriptor cons = new MethodDescriptor("<init>", ValueType.VOID);
-        writer.append("$rt_throw(").appendClass(clsName).append(".").appendMethod(cons).append("());").softNewLine();
+        MethodReference cons = new MethodReference("java.lang.IllegalArgumentException", "<init>", ValueType.VOID);
+        writer.append("$rt_throw(").append(writer.getNaming().getNameForInit(cons)).append("());").softNewLine();
         writer.outdent().append("}").softNewLine();
         writer.append("return " + array + ".data.length;").softNewLine();
     }
 
-    private void achieveGetLength(final DependencyAgent agent, final MethodDependency method) {
+    private void reachGetLength(final DependencyAgent agent, final MethodDependency method) {
         method.getVariable(1).addConsumer(type -> {
             if (!type.getName().startsWith("[")) {
                 MethodReference cons = new MethodReference(IllegalArgumentException.class, "<init>", void.class);
@@ -121,7 +135,32 @@ public class ArrayNativeGenerator implements Generator, DependencyPlugin {
         writer.outdent().append("}").softNewLine();
     }
 
-    private void achieveGet(final DependencyAgent agent, final MethodDependency method) {
+    private void generateSet(GeneratorContext context, SourceWriter writer) throws IOException {
+        String array = context.getParameterName(1);
+        String item = context.getParameterName(3);
+        writer.append("var type = " + array + ".constructor.$meta.item;").softNewLine();
+        boolean first = true;
+        for (int i = 0; i < primitives.length; ++i) {
+            String wrapper = "java.lang." + primitiveWrappers[i];
+            MethodReference methodRef = new MethodReference(wrapper, primitives[i].toLowerCase() + "Value",
+                    primitiveTypes[i]);
+            ClassReader cls = context.getClassSource().get(methodRef.getClassName());
+            if (cls == null || cls.getMethod(methodRef.getDescriptor()) == null) {
+                continue;
+            }
+            if (!first) {
+                writer.append(" else ");
+            }
+            first = false;
+            writer.append("if (type === $rt_" + primitives[i].toLowerCase() + "cls()) {").indent().softNewLine();
+            writer.append(item + " = ").appendMethodBody(methodRef).append("(" + item + ");").softNewLine();
+            writer.outdent().append("}");
+        }
+        writer.softNewLine();
+        writer.append(array + ".data[" + context.getParameterName(2) + "] = " + item + ";").softNewLine();
+    }
+
+    private void reachGet(DependencyAgent agent, MethodDependency method) {
         method.getVariable(1).getArrayItem().connect(method.getResult());
         method.getVariable(1).addConsumer(type -> {
             if (type.getName().startsWith("[")) {
@@ -133,6 +172,23 @@ public class ArrayNativeGenerator implements Generator, DependencyPlugin {
                                 primitiveTypes[i], ValueType.object(wrapper));
                         agent.linkMethod(methodRef, null).use();
                         method.getResult().propagate(agent.getType("java.lang." + primitiveWrappers[i]));
+                    }
+                }
+            }
+        });
+    }
+
+    private void reachSet(DependencyAgent agent, MethodDependency method) {
+        method.getVariable(3).connect(method.getVariable(1).getArrayItem());
+        method.getVariable(1).addConsumer(type -> {
+            if (type.getName().startsWith("[")) {
+                String typeName = type.getName().substring(1);
+                for (int i = 0; i < primitiveTypes.length; ++i) {
+                    if (primitiveTypes[i].toString().equals(typeName)) {
+                        String wrapper = "java.lang." + primitiveWrappers[i];
+                        MethodReference methodRef = new MethodReference(wrapper,
+                                primitives[i].toLowerCase() + "Value", primitiveTypes[i]);
+                        agent.linkMethod(methodRef, null).use();
                     }
                 }
             }

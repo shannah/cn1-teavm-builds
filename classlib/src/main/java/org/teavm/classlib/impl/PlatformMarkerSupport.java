@@ -17,6 +17,8 @@ package org.teavm.classlib.impl;
 
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.interop.PlatformMarker;
+import org.teavm.model.AnnotationReader;
+import org.teavm.model.AnnotationValue;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassHolder;
@@ -38,9 +40,15 @@ import org.teavm.model.instructions.IntegerConstantInstruction;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.optimization.ConstantConditionElimination;
 import org.teavm.model.optimization.GlobalValueNumbering;
-import org.teavm.model.optimization.UnreachableBasicBlockElimination;
+import org.teavm.model.optimization.UnreachableBasicBlockEliminator;
 
 public class PlatformMarkerSupport implements ClassHolderTransformer {
+    private String[] tags;
+
+    public PlatformMarkerSupport(String[] tags) {
+        this.tags = tags;
+    }
+
     @Override
     public void transformClass(ClassHolder cls, ClassReaderSource innerSource, Diagnostics diagnostics) {
         for (MethodHolder method : cls.getMethods()) {
@@ -57,12 +65,18 @@ public class PlatformMarkerSupport implements ClassHolderTransformer {
         for (BasicBlock block : program.getBasicBlocks()) {
             for (Instruction instruction : block) {
                 Variable receiver;
+                MarkerKind kind;
                 if (instruction instanceof InvokeInstruction) {
                     MethodReference methodRef = ((InvokeInstruction) instruction).getMethod();
                     MethodReader method = innerSource.resolve(methodRef);
-                    if (method == null || !isMarker(method)) {
+                    if (method == null) {
                         continue;
                     }
+                    kind = isMarker(method);
+                    if (kind == null) {
+                        continue;
+                    }
+
                     if (!method.hasModifier(ElementModifier.STATIC)) {
                         diagnostics.error(new CallLocation(containingMethod, instruction.getLocation()),
                                 "Method '{{m0}}' is marked with '{{c1}}' and should be static",
@@ -79,9 +93,14 @@ public class PlatformMarkerSupport implements ClassHolderTransformer {
                 } else if (instruction instanceof GetFieldInstruction) {
                     FieldReference fieldRef = ((GetFieldInstruction) instruction).getField();
                     FieldReader field = innerSource.resolve(fieldRef);
-                    if (field == null || !isMarker(field)) {
+                    if (field == null) {
                         continue;
                     }
+                    kind = isMarker(field);
+                    if (kind == null) {
+                        continue;
+                    }
+
                     if (!field.hasModifier(ElementModifier.STATIC)) {
                         diagnostics.error(new CallLocation(containingMethod, instruction.getLocation()),
                                 "Field '{{f0}}' is marked with '{{c1}}' and should be static",
@@ -105,7 +124,7 @@ public class PlatformMarkerSupport implements ClassHolderTransformer {
                 } else {
                     IntegerConstantInstruction trueResult = new IntegerConstantInstruction();
                     trueResult.setReceiver(receiver);
-                    trueResult.setConstant(1);
+                    trueResult.setConstant(kind == MarkerKind.TRUE ? 1 : 0);
                     trueResult.setLocation(instruction.getLocation());
                     instruction.replace(trueResult);
                 }
@@ -116,13 +135,32 @@ public class PlatformMarkerSupport implements ClassHolderTransformer {
             boolean changed;
             do {
                 changed = new GlobalValueNumbering(true).optimize(program)
-                        | new ConstantConditionElimination().optimize(null, program)
-                        | new UnreachableBasicBlockElimination().optimize(null, program);
+                        | new ConstantConditionElimination().optimize(containingMethod.getDescriptor(), program);
+                new UnreachableBasicBlockEliminator().optimize(program);
             } while (changed);
         }
     }
 
-    private boolean isMarker(MemberReader member) {
-        return member.getAnnotations().get(PlatformMarker.class.getName()) != null;
+    private MarkerKind isMarker(MemberReader member) {
+        AnnotationReader annot = member.getAnnotations().get(PlatformMarker.class.getName());
+        if (annot == null) {
+            return null;
+        }
+        AnnotationValue value = annot.getValue("value");
+        if (value == null) {
+            return MarkerKind.TRUE;
+        }
+        String tagToMatch = value.getString();
+        for (String tag : tags) {
+            if (tag.equals(tagToMatch)) {
+                return MarkerKind.TRUE;
+            }
+        }
+        return MarkerKind.FALSE;
+    }
+
+    enum MarkerKind {
+        TRUE,
+        FALSE
     }
 }

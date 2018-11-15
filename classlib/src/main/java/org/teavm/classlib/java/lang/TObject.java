@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.lang;
 
+import org.teavm.dependency.PluggableDependency;
 import org.teavm.interop.Address;
 import org.teavm.interop.Async;
 import org.teavm.interop.DelegateTo;
@@ -22,6 +23,7 @@ import org.teavm.interop.Rename;
 import org.teavm.interop.Structure;
 import org.teavm.interop.Superclass;
 import org.teavm.interop.Sync;
+import org.teavm.interop.Unmanaged;
 import org.teavm.jso.browser.TimerHandler;
 import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformObject;
@@ -31,7 +33,6 @@ import org.teavm.platform.async.AsyncCallback;
 import org.teavm.runtime.Allocator;
 import org.teavm.runtime.RuntimeArray;
 import org.teavm.runtime.RuntimeClass;
-import org.teavm.runtime.RuntimeJavaObject;
 import org.teavm.runtime.RuntimeObject;
 
 @Superclass("")
@@ -210,23 +211,21 @@ public class TObject {
     }
 
     @SuppressWarnings("unused")
-    private static int identityLowLevel(RuntimeJavaObject object) {
-        if ((object.classReference & RuntimeObject.MONITOR_EXISTS) != 0) {
-            object = (RuntimeJavaObject) object.monitor;
-        }
-        int result = object.monitor.toAddress().toInt();
+    private static int identityLowLevel(RuntimeObject object) {
+        int result = object.hashCode;
         if (result == 0) {
-            result = RuntimeJavaObject.nextId++;
+            result = RuntimeObject.nextId++;
             if (result == 0) {
-                result = RuntimeJavaObject.nextId++;
+                result = RuntimeObject.nextId++;
             }
-            object.monitor = Address.fromInt(result).toStructure();
+            object.hashCode = result;
         }
         return result;
     }
 
     @Override
     @DelegateTo("cloneLowLevel")
+    @PluggableDependency(ObjectDependencyPlugin.class)
     protected Object clone() throws TCloneNotSupportedException {
         if (!(this instanceof TCloneable) && Platform.getPlatformObject(this)
                 .getPlatformClass().getMetadata().getArrayItem() == null) {
@@ -238,18 +237,18 @@ public class TObject {
     }
 
     @SuppressWarnings("unused")
-    private static RuntimeJavaObject cloneLowLevel(RuntimeJavaObject self) {
+    private static RuntimeObject cloneLowLevel(RuntimeObject self) {
         RuntimeClass cls = RuntimeClass.getClass(self);
-        int skip = Structure.sizeOf(RuntimeJavaObject.class);
+        int skip = Structure.sizeOf(RuntimeObject.class);
         int size;
-        RuntimeJavaObject copy;
+        RuntimeObject copy;
         if (cls.itemType == null) {
             copy = Allocator.allocate(cls).toStructure();
             size = cls.size;
         } else {
             RuntimeArray array = (RuntimeArray) self;
             copy = Allocator.allocateArray(cls, array.size).toStructure();
-            int itemSize = (cls.itemType.flags & RuntimeClass.PRIMITIVE) == 0 ? 4 : cls.itemType.size;
+            int itemSize = (cls.itemType.flags & RuntimeClass.PRIMITIVE) == 0 ? Address.sizeOf() : cls.itemType.size;
             Address headerSize = Address.align(Address.fromInt(Structure.sizeOf(RuntimeArray.class)), itemSize);
             size = itemSize * array.size + headerSize.toInt();
         }
@@ -313,6 +312,7 @@ public class TObject {
     public final void waitImpl(long timeout, int nanos, final AsyncCallback<Void> callback) {
         final NotifyListenerImpl listener = new NotifyListenerImpl(this, callback, monitor.count);
         monitor.notifyListeners.add(listener);
+        TThread.currentThread().interruptHandler = listener;
         if (timeout > 0 || nanos > 0) {
             listener.timerId = Platform.schedule(listener, timeout >= Integer.MAX_VALUE ? Integer.MAX_VALUE
                     : (int) timeout);
@@ -393,6 +393,7 @@ public class TObject {
     protected void finalize() throws TThrowable {
     }
 
+    @Unmanaged
     public static TObject wrap(Object obj) {
         return (TObject) obj;
     }

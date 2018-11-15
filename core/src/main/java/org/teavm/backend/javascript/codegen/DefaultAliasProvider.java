@@ -30,27 +30,40 @@ public class DefaultAliasProvider implements AliasProvider {
 
     @Override
     public String getClassAlias(String cls) {
-        return classAliases.computeIfAbsent(cls, key -> {
-            StringBuilder alias = new StringBuilder();
-            int lastIndex = 0;
-            while (true) {
-                int index = cls.indexOf('.', lastIndex);
-                if (index == -1) {
-                    if (lastIndex > 0) {
-                        alias.append("_");
-                    }
-                    alias.append(cls.substring(lastIndex));
-                    break;
-                } else {
-                    if (index > lastIndex) {
-                        alias.append(cls.charAt(lastIndex));
-                    }
-                    lastIndex = index + 1;
-                }
-            }
+        return classAliases.computeIfAbsent(cls, key -> makeUnique(knownAliases, suggestAliasForClass(key)));
+    }
 
-            return makeUnique(knownAliases, alias.toString());
-        });
+    private static String suggestAliasForClass(String cls) {
+        StringBuilder alias = new StringBuilder();
+        int lastIndex = 0;
+        while (true) {
+            int index = cls.indexOf('.', lastIndex);
+            if (index == -1) {
+                if (lastIndex > 0) {
+                    alias.append("_");
+                }
+                alias.append(cls.substring(lastIndex));
+                break;
+            } else {
+                if (index > lastIndex) {
+                    alias.append(cls.charAt(lastIndex));
+                }
+                lastIndex = index + 1;
+            }
+        }
+
+        for (int i = 1; i < alias.length(); ++i) {
+            char c = alias.charAt(i);
+            if (!Character.isJavaIdentifierPart(c)) {
+                alias.setCharAt(i, '_');
+            }
+        }
+
+        if (!Character.isJavaIdentifierStart(alias.charAt(0))) {
+            alias.setCharAt(0, '_');
+        }
+
+        return alias.toString();
     }
 
     @Override
@@ -98,6 +111,11 @@ public class DefaultAliasProvider implements AliasProvider {
     @Override
     public String getFunctionAlias(String name) {
         return name;
+    }
+
+    @Override
+    public String getClassInitAlias(String className) {
+        return makeUnique(knownAliases, suggestAliasForClass(className) + "_$callClinit");
     }
 
     private String makeUnique(Set<String> knowAliases, String alias) {

@@ -15,8 +15,8 @@
  */
 package org.teavm.callgraph;
 
+import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.carrotsearch.hppc.ObjectIntMap;
-import com.carrotsearch.hppc.ObjectIntOpenHashMap;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -24,8 +24,8 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,7 +48,7 @@ public class DefaultCallGraph implements CallGraph, Serializable {
     }
 
     void addFieldAccess(DefaultFieldAccessSite accessSite) {
-        fieldAccessSites.computeIfAbsent(accessSite.getField(), k -> new HashSet<>()).add(accessSite);
+        fieldAccessSites.computeIfAbsent(accessSite.getField(), k -> new LinkedHashSet<>()).add(accessSite);
     }
 
     private void writeObject(ObjectOutputStream out) throws IOException {
@@ -65,12 +65,12 @@ public class DefaultCallGraph implements CallGraph, Serializable {
 
     static class SerializableCallGraphBuilder {
         List<SerializableCallGraph.Node> nodes = new ArrayList<>();
-        ObjectIntMap<DefaultCallGraphNode> nodeToIndex = new ObjectIntOpenHashMap<>();
+        ObjectIntMap<DefaultCallGraphNode> nodeToIndex = new ObjectIntHashMap<>();
         List<SerializableCallGraph.CallSite> callSites = new ArrayList<>();
         List<DefaultCallSite> originalCallSites = new ArrayList<>();
-        ObjectIntMap<DefaultCallSite> callSiteToIndex = new ObjectIntOpenHashMap<>();
+        ObjectIntMap<DefaultCallSite> callSiteToIndex = new ObjectIntHashMap<>();
         List<SerializableCallGraph.FieldAccess> fieldAccessList = new ArrayList<>();
-        ObjectIntMap<DefaultFieldAccessSite> fieldAccessToIndex = new ObjectIntOpenHashMap<>();
+        ObjectIntMap<DefaultFieldAccessSite> fieldAccessToIndex = new ObjectIntHashMap<>();
         List<DefaultCallGraphNode> nodesToProcess = new ArrayList<>();
         List<DefaultCallSite> callSitesToProcess = new ArrayList<>();
         List<DefaultFieldAccessSite> fieldAccessToProcess = new ArrayList<>();

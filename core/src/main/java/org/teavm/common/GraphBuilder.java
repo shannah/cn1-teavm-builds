@@ -15,7 +15,7 @@
  */
 package org.teavm.common;
 
-import com.carrotsearch.hppc.IntOpenHashSet;
+import com.carrotsearch.hppc.IntHashSet;
 import com.carrotsearch.hppc.IntSet;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -47,14 +47,14 @@ public class GraphBuilder {
         sz = Math.max(sz, Math.max(from, to) + 1);
         builtGraph = null;
         if (addedEdges.size() == from) {
-            addedEdges.add(IntOpenHashSet.from(to));
+            addedEdges.add(IntHashSet.from(to));
         } else if (addedEdges.size() <= from) {
             addedEdges.addAll(Collections.nCopies(from - addedEdges.size(), null));
-            addedEdges.add(IntOpenHashSet.from(to));
+            addedEdges.add(IntHashSet.from(to));
         } else {
             IntSet set = addedEdges.get(from);
             if (set == null) {
-                addedEdges.set(from, IntOpenHashSet.from(to));
+                addedEdges.set(from, IntHashSet.from(to));
             } else {
                 set.add(to);
             }
@@ -68,14 +68,14 @@ public class GraphBuilder {
         if (from >= addedEdges.size() || to >= addedEdges.size()) {
             return;
         }
-        addedEdges.get(from).removeAllOccurrences(to);
+        addedEdges.get(from).removeAll(to);
     }
 
     public Graph build() {
         if (builtGraph == null) {
             IntSet[] incomingEdges = new IntSet[sz];
             for (int i = 0; i < sz; ++i) {
-                incomingEdges[i] = new IntOpenHashSet();
+                incomingEdges[i] = new IntHashSet();
             }
             int[][] outgoingEdgeList = new int[sz][];
             for (int i = 0; i < addedEdges.size(); ++i) {
@@ -99,11 +99,11 @@ public class GraphBuilder {
         return builtGraph;
     }
 
-    private static class GraphImpl implements Graph {
+    private static final class GraphImpl implements Graph {
         private final int[][] incomingEdgeList;
         private final int[][] outgoingEdgeList;
 
-        public GraphImpl(int[][] incomingEdgeList, int[][] outgoingEdgeList) {
+        GraphImpl(int[][] incomingEdgeList, int[][] outgoingEdgeList) {
             this.incomingEdgeList = incomingEdgeList;
             this.outgoingEdgeList = outgoingEdgeList;
         }
@@ -147,6 +147,28 @@ public class GraphBuilder {
         @Override
         public int outgoingEdgesCount(int node) {
             return outgoingEdgeList[node].length;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("digraph {\n");
+
+            for (int i = 0; i < size(); ++i) {
+                if (outgoingEdgesCount(i) > 0) {
+                    sb.append("  ").append(i).append(" -> { ");
+                    int[] outgoingEdges = outgoingEdges(i);
+                    sb.append(outgoingEdges[0]);
+                    for (int j = 1; j < outgoingEdges.length; ++j) {
+                        sb.append(", ").append(outgoingEdges[j]);
+                    }
+                    sb.append(" }\n");
+                }
+            }
+
+            sb.append("}");
+
+            return sb.toString();
         }
     }
 }

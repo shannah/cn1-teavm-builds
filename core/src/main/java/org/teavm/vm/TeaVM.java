@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -37,6 +38,7 @@ import org.teavm.dependency.DependencyInfo;
 import org.teavm.dependency.DependencyListener;
 import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.Linker;
+import org.teavm.dependency.MethodDependency;
 import org.teavm.diagnostics.AccumulationDiagnostics;
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.diagnostics.ProblemProvider;
@@ -47,12 +49,14 @@ import org.teavm.model.ClassReader;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.ListableClassHolderSource;
 import org.teavm.model.ListableClassReaderSource;
+import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.MutableClassHolderSource;
 import org.teavm.model.Program;
 import org.teavm.model.ProgramCache;
+import org.teavm.model.ValueType;
 import org.teavm.model.optimization.ArrayUnwrapMotion;
 import org.teavm.model.optimization.ClassInitElimination;
 import org.teavm.model.optimization.ConstantConditionElimination;
@@ -63,6 +67,7 @@ import org.teavm.model.optimization.LoopInvariantMotion;
 import org.teavm.model.optimization.MethodOptimization;
 import org.teavm.model.optimization.MethodOptimizationContext;
 import org.teavm.model.optimization.RedundantJumpElimination;
+import org.teavm.model.optimization.RedundantNullCheckElimination;
 import org.teavm.model.optimization.ScalarReplacement;
 import org.teavm.model.optimization.UnreachableBasicBlockElimination;
 import org.teavm.model.optimization.UnusedVariableElimination;
@@ -105,11 +110,14 @@ import org.teavm.vm.spi.TeaVMPlugin;
  * @author Alexey Andreev
  */
 public class TeaVM implements TeaVMHost, ServiceRepository {
+    private static final MethodDescriptor MAIN_METHOD_DESC = new MethodDescriptor("main",
+            ValueType.arrayOf(ValueType.object("java.lang.String")), ValueType.VOID);
+
     private final ClassReaderSource classSource;
     private final DependencyAnalyzer dependencyAnalyzer;
     private final AccumulationDiagnostics diagnostics = new AccumulationDiagnostics();
     private final ClassLoader classLoader;
-    private final Map<String, TeaVMEntryPoint> entryPoints = new HashMap<>();
+    private final Map<String, TeaVMEntryPoint> entryPoints = new LinkedHashMap<>();
     private final Map<String, TeaVMEntryPoint> readonlyEntryPoints = Collections.unmodifiableMap(entryPoints);
     private final Set<String> preservedClasses = new HashSet<>();
     private final Set<String> readonlyPreservedClasses = Collections.unmodifiableSet(preservedClasses);
@@ -123,6 +131,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
     private ListableClassHolderSource writtenClasses;
     private TeaVMTarget target;
     private Map<Class<?>, TeaVMHostExtension> extensions = new HashMap<>();
+    private Set<? extends MethodReference> virtualMethods;
 
     TeaVM(TeaVMBuilder builder) {
         target = builder.target;
@@ -236,58 +245,43 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         return diagnostics;
     }
 
-    /**
-     * <p>Adds an entry point. TeaVM guarantees, that all methods that are required by the entry point
-     * will be available at run-time in browser. Also you need to specify for each parameter of entry point
-     * which actual types will be passed here by calling {@link TeaVMEntryPoint#withValue(int, String)}.
-     * It is highly recommended to read explanation on {@link TeaVMEntryPoint} class documentation.</p>
-     *
-     * <p>You should call this method after installing all plugins and interceptors, but before
-     * doing the actual build.</p>
-     *
-     * @param name the name under which this entry point will be available for JavaScript code.
-     * @param ref a full reference to the method which is an entry point.
-     * @return an entry point that you can additionally adjust.
-     */
-    public TeaVMEntryPoint entryPoint(String name, MethodReference ref) {
-        if (name != null) {
-            if (entryPoints.containsKey(name)) {
-                throw new IllegalArgumentException("Entry point with public name `" + name + "' already defined "
-                        + "for method " + ref);
-            }
-        }
-        TeaVMEntryPoint entryPoint = new TeaVMEntryPoint(name, ref, dependencyAnalyzer.linkMethod(ref, null));
-        dependencyAnalyzer.defer(() -> {
-            dependencyAnalyzer.linkClass(ref.getClassName(), null).initClass(null);
-        });
-        if (name != null) {
-            entryPoints.put(name, entryPoint);
-        }
-        return entryPoint;
+    @Override
+    public String[] getPlatformTags() {
+        return target.getPlatformTags();
     }
 
-    /**
-     * <p>Adds an entry point. TeaVM guarantees, that all methods that are required by the entry point
-     * will be available at run-time in browser. Also you need to specify for each parameter of entry point
-     * which actual types will be passed here by calling {@link TeaVMEntryPoint#withValue(int, String)}.
-     * It is highly recommended to read explanation on {@link TeaVMEntryPoint} class documentation.</p>
-     *
-     * <p>You should call this method after installing all plugins and interceptors, but before
-     * doing the actual build.</p>
-     *
-     * @param ref a full reference to the method which is an entry point.
-     * @return an entry point that you can additionally adjust.
-     */
-    public TeaVMEntryPoint entryPoint(MethodReference ref) {
-        return entryPoint(null, ref);
+    public void entryPoint(String className, String name) {
+        if (entryPoints.containsKey(name)) {
+            throw new IllegalArgumentException("Entry point with public name `" + name + "' already defined "
+                    + "for class " + className);
+        }
+
+        ClassReader cls = dependencyAnalyzer.getClassSource().get(className);
+        if (cls == null) {
+            diagnostics.error(null, "There's no main class: '{{c0}}'", className);
+            return;
+        }
+
+        if (cls.getMethod(MAIN_METHOD_DESC) == null) {
+            diagnostics.error(null, "Specified main class '{{c0}}' does not have method '" + MAIN_METHOD_DESC + "'");
+            return;
+        }
+
+        MethodDependency mainMethod = dependencyAnalyzer.linkMethod(new MethodReference(className,
+                "main", ValueType.parse(String[].class), ValueType.VOID), null);
+
+        TeaVMEntryPoint entryPoint = new TeaVMEntryPoint(name, mainMethod);
+        dependencyAnalyzer.defer(() -> {
+            dependencyAnalyzer.linkClass(className, null).initClass(null);
+            mainMethod.getVariable(1).propagate(dependencyAnalyzer.getType("[Ljava/lang/String;"));
+            mainMethod.getVariable(1).getArrayItem().propagate(dependencyAnalyzer.getType("java.lang.String"));
+            mainMethod.use();
+        });
+        entryPoints.put(name, entryPoint);
     }
 
-    public TeaVMEntryPoint linkMethod(MethodReference ref) {
-        TeaVMEntryPoint entryPoint = new TeaVMEntryPoint("", ref, dependencyAnalyzer.linkMethod(ref, null));
-        dependencyAnalyzer.defer(() -> {
-            dependencyAnalyzer.linkClass(ref.getClassName(), null).initClass(null);
-        });
-        return entryPoint;
+    public void entryPoint(String className) {
+        entryPoint(className, "main");
     }
 
     public void preserveType(String className) {
@@ -352,6 +346,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
             return;
         }
 
+        dependencyAnalyzer.setAsyncSupported(target.isAsyncSupported());
         dependencyAnalyzer.setInterruptor(() -> progressListener.progressReached(0) == TeaVMProgressFeedback.CONTINUE);
         target.contributeDependencies(dependencyAnalyzer);
         dependencyAnalyzer.processDependencies();
@@ -379,6 +374,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                 return;
             }
 
+            dependencyAnalyzer.cleanup();
             inline(classSet, dependencyAnalyzer);
             if (wasCancelled()) {
                 return;
@@ -449,6 +445,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                 return;
             }
         }
+        virtualMethods = devirtualization.getVirtualMethods();
     }
 
     private void inline(ListableClassHolderSource classes, DependencyInfo dependencyInfo) {
@@ -507,6 +504,8 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         MethodOptimizationContextImpl context = new MethodOptimizationContextImpl(method, classSource);
         if (optimizedProgram == null) {
             optimizedProgram = ProgramUtils.copy(method.getProgram());
+            target.beforeOptimizations(optimizedProgram, method, classSource);
+
             if (optimizedProgram.basicBlockCount() > 0) {
                 boolean changed;
                 do {
@@ -573,6 +572,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         }
         optimizations.add(new GlobalValueNumbering(optimizationLevel == TeaVMOptimizationLevel.SIMPLE));
         if (optimizationLevel.ordinal() >= TeaVMOptimizationLevel.ADVANCED.ordinal()) {
+            optimizations.add(new RedundantNullCheckElimination());
             optimizations.add(new ConstantConditionElimination());
             optimizations.add(new RedundantJumpElimination());
             optimizations.add(new UnusedVariableElimination());
@@ -680,6 +680,11 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         @Override
         public boolean isFriendlyToDebugger() {
             return optimizationLevel == TeaVMOptimizationLevel.SIMPLE;
+        }
+
+        @Override
+        public boolean isVirtual(MethodReference method) {
+            return incremental || virtualMethods == null || virtualMethods.contains(method);
         }
     };
 }

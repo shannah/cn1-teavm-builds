@@ -18,7 +18,7 @@ package org.teavm.ast.decompilation;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.teavm.ast.ArrayType;
@@ -325,7 +325,7 @@ class StatementGenerator implements InstructionVisitor {
         SwitchStatement stmt = new SwitchStatement();
         stmt.setId("sblock" + (lastSwitchId++));
         stmt.setValue(Expr.var(insn.getCondition().getIndex()));
-        Map<Integer, List<Integer>> switchMap = new HashMap<>();
+        Map<Integer, List<Integer>> switchMap = new LinkedHashMap<>();
         for (int i = 0; i < insn.getEntries().size(); ++i) {
             SwitchTableEntry entry = insn.getEntries().get(i);
             List<Integer> conditions = switchMap.computeIfAbsent(entry.getTarget().getIndex(), k -> new ArrayList<>());
@@ -425,7 +425,7 @@ class StatementGenerator implements InstructionVisitor {
 
     @Override
     public void visit(UnwrapArrayInstruction insn) {
-        UnwrapArrayExpr unwrapExpr = new UnwrapArrayExpr(insn.getElementType());
+        UnwrapArrayExpr unwrapExpr = new UnwrapArrayExpr(map(insn.getElementType()));
         unwrapExpr.setArray(Expr.var(insn.getArray().getIndex()));
         assign(unwrapExpr, insn.getReceiver());
     }
@@ -460,7 +460,7 @@ class StatementGenerator implements InstructionVisitor {
             case SHORT:
                 return ArrayType.SHORT;
             case CHAR:
-                return ArrayType.SHORT;
+                return ArrayType.CHAR;
             case INT:
                 return ArrayType.INT;
             case LONG:

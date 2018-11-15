@@ -18,12 +18,11 @@ package org.teavm.ast.optimization;
 import java.util.BitSet;
 import org.teavm.ast.AsyncMethodNode;
 import org.teavm.ast.AsyncMethodPart;
-import org.teavm.ast.MethodNode;
 import org.teavm.ast.RegularMethodNode;
-import org.teavm.ast.VariableNode;
 import org.teavm.common.Graph;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.Instruction;
+import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
 import org.teavm.model.Variable;
 import org.teavm.model.util.AsyncProgramSplitter;
@@ -33,14 +32,22 @@ import org.teavm.model.util.ProgramUtils;
 import org.teavm.model.util.UsageExtractor;
 
 public class Optimizer {
+    private boolean moveConstants;
+
+    public Optimizer(boolean moveConstants) {
+        this.moveConstants = moveConstants;
+    }
+
     public void optimize(RegularMethodNode method, Program program, boolean friendlyToDebugger) {
         ReadWriteStatsBuilder stats = new ReadWriteStatsBuilder(method.getVariables().size());
         stats.analyze(program);
+        applyParametersToWriteStats(stats, method.getReference());
+
         boolean[] preservedVars = new boolean[stats.writes.length];
         BreakEliminator breakEliminator = new BreakEliminator();
         breakEliminator.eliminate(method.getBody());
         OptimizingVisitor optimizer = new OptimizingVisitor(preservedVars, stats.writes, stats.reads,
-                friendlyToDebugger);
+                moveConstants ? stats.constants : new Object[stats.constants.length], friendlyToDebugger);
         method.getBody().acceptVisitor(optimizer);
         method.setBody(optimizer.resultStmt);
         int paramCount = method.getReference().parameterCount();
@@ -68,13 +75,14 @@ public class Optimizer {
             boolean[] preservedVars = new boolean[method.getVariables().size()];
             ReadWriteStatsBuilder stats = new ReadWriteStatsBuilder(method.getVariables().size());
             stats.analyze(splitter.getProgram(i));
+            applyParametersToWriteStats(stats, method.getReference());
 
             AsyncMethodPart part = method.getBody().get(i);
             BreakEliminator breakEliminator = new BreakEliminator();
             breakEliminator.eliminate(part.getStatement());
             findEscapingLiveVars(liveness, cfg, splitter, i, preservedVars);
             OptimizingVisitor optimizer = new OptimizingVisitor(preservedVars, stats.writes, stats.reads,
-                    friendlyToDebugger);
+                    moveConstants ? stats.constants : new Object[stats.constants.length], friendlyToDebugger);
             part.getStatement().acceptVisitor(optimizer);
             part.setStatement(optimizer.resultStmt);
         }
@@ -97,11 +105,9 @@ public class Optimizer {
         }
     }
 
-    private void preserveDebuggableVars(boolean[] variablesToPreserve, MethodNode methodNode) {
-        for (VariableNode varNode : methodNode.getVariables()) {
-            if (varNode.getName() != null) {
-                variablesToPreserve[varNode.getIndex()] = true;
-            }
+    private void applyParametersToWriteStats(ReadWriteStatsBuilder stats, MethodReference method) {
+        for (int i = 0; i <= method.parameterCount(); ++i) {
+            stats.writes[i]++;
         }
     }
 

@@ -16,6 +16,7 @@
 package org.teavm.jso.browser;
 
 import org.teavm.jso.JSBody;
+import org.teavm.jso.geolocation.Geolocation;
 
 public final class Navigator {
     private Navigator() {
@@ -23,4 +24,10 @@ public final class Navigator {
 
     @JSBody(script = "return navigator.onLine;")
     public static native boolean isOnline();
+
+    @JSBody(script = "return navigator.geolocation;")
+    public static native Geolocation getGeolocation();
+
+    @JSBody(script = "return (\"geolocation\" in navigator);")
+    public static native boolean isGeolocationAvailable();
 }

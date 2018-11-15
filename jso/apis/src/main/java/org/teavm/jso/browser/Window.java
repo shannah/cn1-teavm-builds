@@ -67,6 +67,9 @@ public abstract class Window implements JSObject, WindowEventTarget, StorageProv
     public abstract int getOuterHeight();
 
     @JSProperty
+    public abstract int getScrollY();
+
+    @JSProperty
     public abstract String getName();
 
     @JSProperty
@@ -178,4 +181,7 @@ public abstract class Window implements JSObject, WindowEventTarget, StorageProv
 
     @JSBody(params = "uri", script = "return decodeURIComponent(uri);")
     public static native String decodeURIComponent(String uri);
+
+    @JSProperty
+    public abstract double getDevicePixelRatio();
 }

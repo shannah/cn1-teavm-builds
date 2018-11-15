@@ -15,12 +15,18 @@
  */
 package org.teavm.backend.javascript;
 
+import com.carrotsearch.hppc.ObjectIntHashMap;
+import com.carrotsearch.hppc.ObjectIntMap;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -39,10 +45,13 @@ import org.teavm.backend.javascript.codegen.SourceWriter;
 import org.teavm.backend.javascript.codegen.SourceWriterBuilder;
 import org.teavm.backend.javascript.rendering.Renderer;
 import org.teavm.backend.javascript.rendering.RenderingContext;
+import org.teavm.backend.javascript.rendering.RuntimeRenderer;
 import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.backend.javascript.spi.Generator;
 import org.teavm.backend.javascript.spi.InjectedBy;
 import org.teavm.backend.javascript.spi.Injector;
+import org.teavm.backend.javascript.spi.VirtualMethodContributor;
+import org.teavm.backend.javascript.spi.VirtualMethodContributorContext;
 import org.teavm.debugging.information.DebugInformationEmitter;
 import org.teavm.debugging.information.DummyDebugInformationEmitter;
 import org.teavm.debugging.information.SourceLocation;
@@ -50,6 +59,7 @@ import org.teavm.dependency.DependencyAnalyzer;
 import org.teavm.dependency.DependencyListener;
 import org.teavm.dependency.MethodDependency;
 import org.teavm.interop.PlatformMarker;
+import org.teavm.interop.PlatformMarkers;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassHolder;
@@ -82,6 +92,9 @@ import org.teavm.vm.spi.RendererListener;
 import org.teavm.vm.spi.TeaVMHostExtension;
 
 public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
+    private static final NumberFormat STATS_NUM_FORMAT = new DecimalFormat("#,##0");
+    private static final NumberFormat STATS_PERCENT_FORMAT = new DecimalFormat("0.000 %");
+
     private TeaVMTargetController controller;
     private boolean minifying = true;
     private final Map<MethodReference, Generator> methodGenerators = new HashMap<>();
@@ -94,6 +107,7 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
     private final Set<MethodReference> asyncMethods = new HashSet<>();
     private final Set<MethodReference> asyncFamilyMethods = new HashSet<>();
     private ClassInitializerInsertionTransformer clinitInsertionTransformer;
+    private List<VirtualMethodContributor> customVirtualMethods = new ArrayList<>();
 
     @Override
     public List<ClassHolderTransformer> getTransformers() {
@@ -184,19 +198,35 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
 
     @Override
     public void contributeDependencies(DependencyAnalyzer dependencyAnalyzer) {
-        dependencyAnalyzer.linkMethod(new MethodReference(Class.class.getName(), "getClass",
-                ValueType.object("org.teavm.platform.PlatformClass"), ValueType.parse(Class.class)), null).use();
-        dependencyAnalyzer.linkMethod(new MethodReference(String.class, "<init>", char[].class, void.class),
-                null).use();
-        dependencyAnalyzer.linkMethod(new MethodReference(String.class, "getChars", int.class, int.class, char[].class,
-                int.class, void.class), null).use();
+        MethodDependency dep;
+
+        dep = dependencyAnalyzer.linkMethod(new MethodReference(Class.class.getName(), "getClass",
+                ValueType.object("org.teavm.platform.PlatformClass"), ValueType.parse(Class.class)), null);
+        dep.getVariable(0).propagate(dependencyAnalyzer.getType("org.teavm.platform.PlatformClass"));
+        dep.getResult().propagate(dependencyAnalyzer.getType("java.lang.Class"));
+        dep.use();
+
+        dep = dependencyAnalyzer.linkMethod(new MethodReference(String.class, "<init>", char[].class, void.class),
+                null);
+        dep.getVariable(0).propagate(dependencyAnalyzer.getType("java.lang.String"));
+        dep.getVariable(1).propagate(dependencyAnalyzer.getType("[C"));
+        dep.use();
+
+        dep = dependencyAnalyzer.linkMethod(new MethodReference(String.class, "getChars", int.class, int.class,
+                char[].class, int.class, void.class), null);
+        dep.getVariable(0).propagate(dependencyAnalyzer.getType("java.lang.String"));
+        dep.getVariable(3).propagate(dependencyAnalyzer.getType("[C"));
+        dep.use();
 
         MethodDependency internDep = dependencyAnalyzer.linkMethod(new MethodReference(String.class, "intern",
                 String.class), null);
         internDep.getVariable(0).propagate(dependencyAnalyzer.getType("java.lang.String"));
         internDep.use();
 
-        dependencyAnalyzer.linkMethod(new MethodReference(String.class, "length", int.class), null).use();
+        dep = dependencyAnalyzer.linkMethod(new MethodReference(String.class, "length", int.class), null);
+        dep.getVariable(0).propagate(dependencyAnalyzer.getType("java.lang.String"));
+        dep.use();
+
         dependencyAnalyzer.linkMethod(new MethodReference(Object.class, "clone", Object.class), null).use();
         dependencyAnalyzer.linkMethod(new MethodReference(Thread.class, "currentThread", Thread.class), null).use();
         dependencyAnalyzer.linkMethod(new MethodReference(Thread.class, "getMainThread", Thread.class), null).use();
@@ -204,6 +234,10 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
                 new MethodReference(Thread.class, "setCurrentThread", Thread.class, void.class), null).use();
         MethodDependency exceptionCons = dependencyAnalyzer.linkMethod(new MethodReference(
                 NoClassDefFoundError.class, "<init>", String.class, void.class), null);
+
+        dep = dependencyAnalyzer.linkMethod(new MethodReference(Object.class, "toString", String.class), null);
+        dep.getVariable(0).propagate(dependencyAnalyzer.getType("java.lang.Object"));
+        dep.use();
 
         exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(NoClassDefFoundError.class.getName()));
         exceptionCons.getVariable(1).propagate(dependencyAnalyzer.getType("java.lang.String"));
@@ -230,6 +264,10 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
     }
 
     @Override
+    public void beforeOptimizations(Program program, MethodReader method, ListableClassReaderSource classSource) {
+    }
+
+    @Override
     public void afterOptimizations(Program program, MethodReader method, ListableClassReaderSource classSource) {
         clinitInsertionTransformer.apply(method, program);
     }
@@ -250,11 +288,16 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
         if (debugEmitterToUse == null) {
             debugEmitterToUse = new DummyDebugInformationEmitter();
         }
-        RenderingContext renderingContext = new RenderingContext(debugEmitterToUse, classes,
-                controller.getClassLoader(), controller.getServices(), controller.getProperties(), naming);
+        VirtualMethodContributorContext virtualMethodContributorContext = new VirtualMethodContributorContextImpl(
+                classes);
+        RenderingContext renderingContext = new RenderingContext(debugEmitterToUse,
+                controller.getUnprocessedClassSource(), classes,
+                controller.getClassLoader(), controller.getServices(), controller.getProperties(), naming,
+                controller.getDependencyInfo(), m -> isVirtual(virtualMethodContributorContext, m));
         renderingContext.setMinifying(minifying);
         Renderer renderer = new Renderer(sourceWriter, asyncMethods, asyncFamilyMethods,
                 controller.getDiagnostics(), renderingContext);
+        RuntimeRenderer runtimeRenderer = new RuntimeRenderer(naming, sourceWriter);
         renderer.setProperties(controller.getProperties());
         renderer.setMinifying(minifying);
         if (debugEmitter != null) {
@@ -276,27 +319,84 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
             renderingContext.addInjector(entry.getKey(), entry.getValue());
         }
         try {
+            printWrapperStart(sourceWriter);
+
             for (RendererListener listener : rendererListeners) {
                 listener.begin(renderer, target);
             }
-            sourceWriter.append("\"use strict\";").newLine();
-            renderer.renderRuntime();
+            int start = sourceWriter.getOffset();
+
+            renderer.prepare(clsNodes);
+            runtimeRenderer.renderRuntime();
             renderer.render(clsNodes);
             renderer.renderStringPool();
             renderer.renderStringConstants();
+            renderer.renderCompatibilityStubs();
+
             for (Map.Entry<? extends String, ? extends TeaVMEntryPoint> entry
                     : controller.getEntryPoints().entrySet()) {
-                sourceWriter.append("var ").append(entry.getKey()).ws().append("=").ws();
-                MethodReference ref = entry.getValue().getReference();
-                sourceWriter.append(naming.getFullNameFor(ref));
-                sourceWriter.append(";").newLine();
+                sourceWriter.append("").append(entry.getKey()).ws().append("=").ws();
+                MethodReference ref = entry.getValue().getMethod();
+                sourceWriter.append("$rt_mainStarter(").append(naming.getFullNameFor(ref));
+                sourceWriter.append(");").newLine();
             }
+
             for (RendererListener listener : rendererListeners) {
                 listener.complete();
             }
+
+            printWrapperEnd(sourceWriter);
+
+            int totalSize = sourceWriter.getOffset() - start;
+            printStats(renderer, totalSize);
         } catch (IOException e) {
             throw new RenderingException("IO Error occured", e);
         }
+    }
+
+    private void printWrapperStart(SourceWriter writer) throws IOException {
+        writer.append("\"use strict\";").newLine();
+        for (String key : controller.getEntryPoints().keySet()) {
+            writer.append("var ").append(key).append(";").softNewLine();
+        }
+        writer.append("(function()").ws().append("{").newLine();
+    }
+
+    private void printWrapperEnd(SourceWriter writer) throws IOException {
+        writer.append("})();").newLine();
+    }
+
+    private void printStats(Renderer renderer, int totalSize) {
+        if (!Boolean.parseBoolean(System.getProperty("teavm.js.stats", "false"))) {
+            return;
+        }
+
+        System.out.println("Total output size: " + STATS_NUM_FORMAT.format(totalSize));
+        System.out.println("Metadata size: " + getSizeWithPercentage(renderer.getMetadataSize(), totalSize));
+        System.out.println("String pool size: " + getSizeWithPercentage(renderer.getStringPoolSize(), totalSize));
+
+        ObjectIntMap<String> packageSizeMap = new ObjectIntHashMap<>();
+        for (String className : renderer.getClassesInStats()) {
+            String packageName = className.substring(0, className.lastIndexOf('.') + 1);
+            int classSize = renderer.getClassSize(className);
+            packageSizeMap.put(packageName, packageSizeMap.getOrDefault(packageName, 0) + classSize);
+        }
+
+        String[] packageNames = packageSizeMap.keys().toArray(String.class);
+        Arrays.sort(packageNames, Comparator.comparing(p -> -packageSizeMap.getOrDefault(p, 0)));
+        for (String packageName : packageNames) {
+            System.out.println("Package '" + packageName + "' size: "
+                    + getSizeWithPercentage(packageSizeMap.get(packageName), totalSize));
+        }
+    }
+
+    private String getSizeWithPercentage(int size, int totalSize) {
+        return STATS_NUM_FORMAT.format(size) + " (" + STATS_PERCENT_FORMAT.format((double) size / totalSize) + ")";
+    }
+
+    static class PackageNode {
+        String name;
+        Map<String, PackageNode> children = new HashMap<>();
     }
 
     private List<ClassNode> modelToAst(ListableClassHolderSource classes) {
@@ -307,7 +407,7 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
         asyncFamilyMethods.addAll(asyncFinder.getAsyncFamilyMethods());
 
         Decompiler decompiler = new Decompiler(classes, controller.getClassLoader(), asyncMethods, asyncFamilyMethods,
-                controller.isFriendlyToDebugger());
+                controller.isFriendlyToDebugger(), false);
         decompiler.setRegularMethodCache(controller.isIncremental() ? astCache : null);
 
         for (Map.Entry<MethodReference, Generator> entry : methodGenerators.entrySet()) {
@@ -447,4 +547,44 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
         }
         return new SourceLocation(location.getFileName(), location.getLine());
     }
+
+    @Override
+    public String[] getPlatformTags() {
+        return new String[] { PlatformMarkers.JAVASCRIPT };
+    }
+
+    @Override
+    public void addVirtualMethods(VirtualMethodContributor virtualMethods) {
+        customVirtualMethods.add(virtualMethods);
+    }
+
+    @Override
+    public boolean isAsyncSupported() {
+        return true;
+    }
+
+    private boolean isVirtual(VirtualMethodContributorContext context, MethodReference method) {
+        if (controller.isVirtual(method)) {
+            return true;
+        }
+        for (VirtualMethodContributor predicate : customVirtualMethods) {
+            if (predicate.isVirtual(context, method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static class VirtualMethodContributorContextImpl implements VirtualMethodContributorContext {
+        private ClassReaderSource classSource;
+
+        VirtualMethodContributorContextImpl(ClassReaderSource classSource) {
+            this.classSource = classSource;
+        }
+
+        @Override
+        public ClassReaderSource getClassSource() {
+            return classSource;
+        }
+    };
 }

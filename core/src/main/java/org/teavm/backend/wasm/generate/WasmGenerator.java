@@ -38,6 +38,7 @@ public class WasmGenerator {
     private WasmGenerationContext context;
     private WasmClassGenerator classGenerator;
     private BinaryWriter binaryWriter;
+    private NameProvider names;
 
     public WasmGenerator(Decompiler decompiler, ClassHolderSource classSource,
             WasmGenerationContext context, WasmClassGenerator classGenerator, BinaryWriter binaryWriter) {
@@ -46,12 +47,13 @@ public class WasmGenerator {
         this.context = context;
         this.classGenerator = classGenerator;
         this.binaryWriter = binaryWriter;
+        names = classGenerator.names;
     }
 
     public WasmFunction generateDefinition(MethodReference methodReference) {
         ClassHolder cls = classSource.get(methodReference.getClassName());
         MethodHolder method = cls.getMethod(methodReference.getDescriptor());
-        WasmFunction function = new WasmFunction(WasmMangling.mangleMethod(method.getReference()));
+        WasmFunction function = new WasmFunction(names.forMethod(method.getReference()));
 
         if (!method.hasModifier(ElementModifier.STATIC)) {
             function.getParameters().add(WasmType.INT32);
@@ -71,7 +73,7 @@ public class WasmGenerator {
         MethodHolder method = cls.getMethod(methodReference.getDescriptor());
 
         RegularMethodNode methodAst = decompiler.decompileRegular(bodyMethod);
-        WasmFunction function = context.getFunction(WasmMangling.mangleMethod(methodReference));
+        WasmFunction function = context.getFunction(names.forMethod(methodReference));
         int firstVariable = method.hasModifier(ElementModifier.STATIC) ? 1 : 0;
         for (int i = firstVariable; i < methodAst.getVariables().size(); ++i) {
             VariableNode variable = methodAst.getVariables().get(i);
@@ -98,7 +100,7 @@ public class WasmGenerator {
     }
 
     public WasmFunction generateNative(MethodReference methodReference) {
-        WasmFunction function = context.getFunction(WasmMangling.mangleMethod(methodReference));
+        WasmFunction function = context.getFunction(names.forMethod(methodReference));
 
         WasmGenerationContext.ImportedMethod importedMethod = context.getImportedMethod(methodReference);
         if (importedMethod != null) {

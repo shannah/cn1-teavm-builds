@@ -15,6 +15,8 @@
  */
 package org.teavm.classlib.java.lang;
 
+import static org.teavm.classlib.impl.IntegerUtil.toUnsignedLogRadixString;
+
 public class TLong extends TNumber implements TComparable<TLong> {
     public static final long MIN_VALUE = -0x8000000000000000L;
     public static final long MAX_VALUE = 0x7FFFFFFFFFFFFFFFL;
@@ -172,15 +174,15 @@ public class TLong extends TNumber implements TComparable<TLong> {
     }
 
     public static String toHexString(long i) {
-        return toString(i, 16);
+        return toUnsignedLogRadixString(i, 4);
     }
 
     public static String toOctalString(long i) {
-        return toString(i, 8);
+        return toUnsignedLogRadixString(i, 3);
     }
 
     public static String toBinaryString(long i) {
-        return toString(i, 2);
+        return toUnsignedLogRadixString(i, 1);
     }
 
     public static String toString(long value) {

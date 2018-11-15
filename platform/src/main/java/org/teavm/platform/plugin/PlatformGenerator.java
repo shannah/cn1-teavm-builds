@@ -25,7 +25,12 @@ import org.teavm.backend.javascript.spi.InjectorContext;
 import org.teavm.dependency.DependencyAgent;
 import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.MethodDependency;
-import org.teavm.model.*;
+import org.teavm.model.CallLocation;
+import org.teavm.model.ClassReader;
+import org.teavm.model.MethodDescriptor;
+import org.teavm.model.MethodReader;
+import org.teavm.model.MethodReference;
+import org.teavm.model.ValueType;
 import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformClass;
 import org.teavm.platform.PlatformRunnable;
@@ -50,6 +55,9 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
             }
             case "getCurrentThread":
                 method.getResult().propagate(agent.getType("java.lang.Thread"));
+                break;
+            case "getEnumConstants":
+                method.getResult().propagate(agent.getType("[Ljava/lang/Enum;"));
                 break;
         }
     }

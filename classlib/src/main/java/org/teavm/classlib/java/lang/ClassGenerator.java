@@ -76,6 +76,9 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
             case "getInterfaces":
                 reachGetInterfaces(agent, method);
                 break;
+            case "getComponentType":
+                reachGetComponentType(agent, method);
+                break;
         }
     }
 
@@ -106,6 +109,19 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
                     method.getResult().getClassValueNode().propagate(agent.getType(iface));
                 }
             }
+        });
+    }
+
+    private void reachGetComponentType(DependencyAgent agent, MethodDependency method) {
+        method.getVariable(0).getClassValueNode().addConsumer(t -> {
+            if (!t.getName().startsWith("[")) {
+                return;
+            }
+            String typeName = t.getName().substring(1);
+            if (typeName.charAt(0) == 'L') {
+                typeName = ((ValueType.Object) ValueType.parse(typeName)).getClassName();
+            }
+            method.getResult().getClassValueNode().propagate(agent.getType(typeName));
         });
     }
 
@@ -159,7 +175,7 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
         ReflectionDependencyListener reflection = context.getService(ReflectionDependencyListener.class);
         Set<MethodDescriptor> accessibleMethods = reflection.getAccessibleMethods(className);
 
-        ClassReader cls = context.getClassSource().get(className);
+        ClassReader cls = context.getInitialClassSource().get(className);
         if (cls == null) {
             return;
         }
@@ -251,17 +267,19 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
         if (method.getResultType() != ValueType.VOID) {
             writer.append("return ");
         }
-        if (method.hasModifier(ElementModifier.STATIC)) {
-            writer.appendMethodBody(method.getReference());
-        } else {
-            writer.append("obj.").appendMethod(method.getDescriptor());
-        }
+        writer.appendMethodBody(method.getReference());
 
         writer.append('(');
+        boolean first = true;
+        if (!method.hasModifier(ElementModifier.STATIC)) {
+            writer.append("obj").ws();
+            first = false;
+        }
         for (int i = 0; i < method.parameterCount(); ++i) {
-            if (i > 0) {
+            if (!first) {
                 writer.append(',').ws();
             }
+            first = false;
             int index = i;
             unboxIfNecessary(writer, method.parameterType(i), () -> writer.append("args[" + index + "]"));
         }
@@ -275,7 +293,7 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
 
     private void initClass(SourceWriter writer, MemberReader member) throws IOException {
         if (member.hasModifier(ElementModifier.STATIC)) {
-            writer.appendClass(member.getOwnerName()).append("_$callClinit();").softNewLine();
+            writer.append(writer.getNaming().getNameForClassInit(member.getOwnerName())).append("();").softNewLine();
         }
     }
 
