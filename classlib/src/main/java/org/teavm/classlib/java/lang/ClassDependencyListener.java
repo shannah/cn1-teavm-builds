@@ -29,6 +29,9 @@ public class ClassDependencyListener implements DependencyPlugin {
                         .linkClass(type.getName(), location)
                         .initClass(location));
                 break;
+            case "getSimpleNameCacheLowLevel":
+                method.getResult().propagate(agent.getType("java.lang.String"));
+                break;
         }
     }
 }

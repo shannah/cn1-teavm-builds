@@ -58,7 +58,7 @@ class JSValueMarshaller {
         if (type instanceof ValueType.Object) {
             String className = ((ValueType.Object) type).getClassName();
             ClassReader cls = classSource.get(className);
-            if (cls.getAnnotations().get(JSFunctor.class.getName()) != null) {
+            if (cls != null && cls.getAnnotations().get(JSFunctor.class.getName()) != null) {
                 return wrapFunctor(location, var, cls);
             }
         }
@@ -221,7 +221,7 @@ class JSValueMarshaller {
         if (type instanceof ValueType.Object) {
             String className = ((ValueType.Object) type).getClassName();
             ClassReader cls = classSource.get(className);
-            if (cls.getAnnotations().get(JSFunctor.class.getName()) != null) {
+            if (cls != null && cls.getAnnotations().get(JSFunctor.class.getName()) != null) {
                 return unwrapFunctor(location, var, cls);
             }
         }
@@ -462,7 +462,7 @@ class JSValueMarshaller {
         return result;
     }
 
-    private Variable unwrapFunctor(CallLocation location, Variable var, ClassReader type) {
+    Variable unwrapFunctor(CallLocation location, Variable var, ClassReader type) {
         if (!isProperFunctor(type)) {
             diagnostics.error(location, "Wrong functor: {{c0}}", type.getName());
             return var;

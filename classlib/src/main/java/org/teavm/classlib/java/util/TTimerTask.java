@@ -17,24 +17,30 @@ package org.teavm.classlib.java.util;
 
 import org.teavm.classlib.java.lang.TObject;
 import org.teavm.classlib.java.lang.TRunnable;
+import org.teavm.classlib.java.lang.TThread;
 
 public abstract class TTimerTask extends TObject implements TRunnable {
-    TTimer timer;
     int nativeTimerId = -1;
+    boolean canceled;
+    boolean complete;
 
+    void runImpl(boolean onlyOnce) {
+        if (canceled || complete) {
+            return;
+        }
+        try {
+            new TThread(this).start();
+        } finally {
+            nativeTimerId = -1;
+            this.complete = onlyOnce;
+        }
+    }
+    
     public boolean cancel() {
-        if (timer == null) {
+        if (canceled || complete) {
             return false;
         }
-        timer = null;
+        canceled = true;
         return true;
-    }
-
-    static void performOnce(TTimerTask task) {
-        if (task.timer != null) {
-            task.run();
-            task.timer.tasks.remove(task);
-            task.timer = null;
-        }
     }
 }

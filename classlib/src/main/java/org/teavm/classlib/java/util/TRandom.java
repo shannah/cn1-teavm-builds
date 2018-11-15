@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.util;
 
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TObject;
@@ -39,7 +40,11 @@ public class TRandom extends TObject implements TSerializable {
     }
 
     protected int next(int bits) {
-        return (int) (random() * (1L << TMath.min(32, bits)));
+        if (bits == 32) {
+            return (int) (nextDouble() * ((1L << 32) - 1) + Integer.MIN_VALUE);
+        } else {
+            return (int) (nextDouble() * (1L << TMath.min(32, bits)));
+        }
     }
 
     public void nextBytes(byte[] bytes) {
@@ -53,7 +58,7 @@ public class TRandom extends TObject implements TSerializable {
     }
 
     public int nextInt(int n) {
-        return (int) (random() * n);
+        return (int) (nextDouble() * n);
     }
 
     public long nextLong() {
@@ -65,13 +70,20 @@ public class TRandom extends TObject implements TSerializable {
     }
 
     public float nextFloat() {
-        return (float) random();
+        return (float) nextDouble();
     }
 
     public double nextDouble() {
-        return random();
+        if (PlatformDetector.isC()) {
+            return crand();
+        } else {
+            return random();
+        }
     }
-    
+
+    @Import(name = "TeaVM_rand")
+    private static native double crand();
+
     /**
      * Generate a random number with Gaussian distribution:
      * centered around 0 with a standard deviation of 1.0.
@@ -106,6 +118,6 @@ public class TRandom extends TObject implements TSerializable {
     }
 
     @JSBody(script = "return Math.random();")
-    @Import(module = "math", name = "random")
+    @Import(module = "teavmMath", name = "random")
     private static native double random();
 }

@@ -15,12 +15,13 @@
  */
 package org.teavm.dependency;
 
-import com.carrotsearch.hppc.IntOpenHashSet;
+import com.carrotsearch.hppc.IntHashSet;
 import com.carrotsearch.hppc.IntSet;
 import com.carrotsearch.hppc.cursors.IntCursor;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,6 +64,7 @@ public class DependencyAnalyzer implements DependencyInfo {
     static final boolean shouldLog = System.getProperty("org.teavm.logDependencies", "false").equals("true");
     static final boolean shouldTag = System.getProperty("org.teavm.tagDependencies", "false").equals("true")
             || shouldLog;
+    static final boolean dependencyReport = System.getProperty("org.teavm.dependencyReport", "false").equals("true");
     private int classNameSuffix;
     private DependencyClassSource classSource;
     private ClassLoader classLoader;
@@ -73,7 +75,7 @@ public class DependencyAnalyzer implements DependencyInfo {
     private CachedMapper<String, ClassDependency> classCache;
     private List<DependencyListener> listeners = new ArrayList<>();
     private ServiceRepository services;
-    private Deque<DependencyNodeToNodeTransition> pendingTransitions = new ArrayDeque<>();
+    private Deque<Transition> pendingTransitions = new ArrayDeque<>();
     private Deque<Runnable> tasks = new ArrayDeque<>();
     private Queue<Runnable> deferredTasks = new ArrayDeque<>();
     List<DependencyType> types = new ArrayList<>();
@@ -86,7 +88,9 @@ public class DependencyAnalyzer implements DependencyInfo {
     Map<MethodReference, BootstrapMethodSubstitutor> bootstrapMethodSubstitutors = new HashMap<>();
     Map<MethodReference, DependencyPlugin> dependencyPlugins = new HashMap<>();
     private boolean completing;
-    private Map<String, SuperClassFilter> superClassFilters = new HashMap<>();
+    private Map<String, DependencyTypeFilter> superClassFilters = new HashMap<>();
+    private List<DependencyNode> allNodes = new ArrayList<>();
+    boolean asyncSupported;
 
     public DependencyAnalyzer(ClassReaderSource classSource, ClassLoader classLoader, ServiceRepository services,
             Diagnostics diagnostics) {
@@ -108,12 +112,20 @@ public class DependencyAnalyzer implements DependencyInfo {
             if (field != null && !field.getReference().equals(preimage)) {
                 return fieldCache.map(field.getReference());
             }
-            return createFieldNode(preimage, field);
+            FieldDependency node = createFieldNode(preimage, field);
+            if (field != null && field.getInitialValue() instanceof String) {
+                node.getValue().propagate(getType("java.lang.String"));
+            }
+            return node;
         });
 
         classCache = new CachedMapper<>(this::createClassDependency);
 
         agent = new DependencyAgent(this);
+    }
+
+    public void setAsyncSupported(boolean asyncSupported) {
+        this.asyncSupported = asyncSupported;
     }
 
     public DependencyAgent getAgent() {
@@ -146,8 +158,13 @@ public class DependencyAnalyzer implements DependencyInfo {
         return createNode(null);
     }
 
-    private DependencyNode createNode(ValueType typeFilter) {
-        return new DependencyNode(this, typeFilter);
+    DependencyNode createNode(ValueType typeFilter) {
+        if (typeFilter != null && typeFilter.isObject("java.lang.Object")) {
+            typeFilter = null;
+        }
+        DependencyNode node = new DependencyNode(this, typeFilter);
+        allNodes.add(node);
+        return node;
     }
 
     @Override
@@ -258,21 +275,26 @@ public class DependencyAnalyzer implements DependencyInfo {
         }
     }
 
-    void schedulePropagation(DependencyNodeToNodeTransition consumer, DependencyType type) {
-        if (consumer.pendingTypes == null && propagationDepth < PROPAGATION_STACK_THRESHOLD) {
+    void schedulePropagation(Transition consumer, DependencyType type) {
+        if (!consumer.destination.filter(type)) {
+            return;
+        }
+
+        if (consumer.pendingTypes == null && propagationDepth < PROPAGATION_STACK_THRESHOLD
+                && consumer.pointsToDomainOrigin() && consumer.destination.propagateCount < 20) {
             ++propagationDepth;
             consumer.consume(type);
             --propagationDepth;
         } else {
             if (consumer.pendingTypes == null) {
                 pendingTransitions.add(consumer);
-                consumer.pendingTypes = new IntOpenHashSet();
+                consumer.pendingTypes = new IntHashSet(50);
             }
             consumer.pendingTypes.add(type.index);
         }
     }
 
-    void schedulePropagation(DependencyNodeToNodeTransition consumer, DependencyType[] types) {
+    void schedulePropagation(Transition consumer, DependencyType[] types) {
         if (types.length == 0) {
             return;
         }
@@ -281,15 +303,17 @@ public class DependencyAnalyzer implements DependencyInfo {
             return;
         }
 
-        if (consumer.pendingTypes == null && propagationDepth < PROPAGATION_STACK_THRESHOLD) {
+        if (consumer.pendingTypes == null && propagationDepth < PROPAGATION_STACK_THRESHOLD
+                && consumer.pointsToDomainOrigin() && consumer.destination.propagateCount < 20) {
             ++propagationDepth;
             consumer.consume(types);
             --propagationDepth;
         } else {
             if (consumer.pendingTypes == null) {
                 pendingTransitions.add(consumer);
-                consumer.pendingTypes = new IntOpenHashSet();
+                consumer.pendingTypes = new IntHashSet(Math.max(50, types.length));
             }
+            consumer.pendingTypes.ensureCapacity(types.length + consumer.pendingTypes.size());
             for (DependencyType type : types) {
                 consumer.pendingTypes.add(type.index);
             }
@@ -422,7 +446,7 @@ public class DependencyAnalyzer implements DependencyInfo {
             parameterNodes[i + 1] = createNode(arguments[i]);
             parameterNodes[i + 1].method = methodRef;
             if (shouldTag) {
-                parameterNodes[i].setTag(methodRef + ":" + i);
+                parameterNodes[i + 1].setTag(methodRef + ":" + (i + 1));
             }
         }
 
@@ -430,7 +454,7 @@ public class DependencyAnalyzer implements DependencyInfo {
         if (methodRef.getDescriptor().getResultType() == ValueType.VOID) {
             resultNode = null;
         } else {
-            resultNode = createNode();
+            resultNode = createNode(methodRef.getDescriptor().getResultType());
             resultNode.method = methodRef;
             if (shouldTag) {
                 resultNode.setTag(methodRef + ":RESULT");
@@ -584,7 +608,9 @@ public class DependencyAnalyzer implements DependencyInfo {
                 if (tasks.isEmpty()) {
                     break;
                 }
-                tasks.remove().run();
+                while (!tasks.isEmpty()) {
+                    tasks.remove().run();
+                }
                 if (++index == 100) {
                     if (interruptor != null && !interruptor.shouldContinue()) {
                         interrupted = true;
@@ -604,7 +630,7 @@ public class DependencyAnalyzer implements DependencyInfo {
 
     private void processNodeToNodeTransitionQueue() {
         while (!pendingTransitions.isEmpty()) {
-            DependencyNodeToNodeTransition transition = pendingTransitions.remove();
+            Transition transition = pendingTransitions.remove();
             IntSet pendingTypes = transition.pendingTypes;
             transition.pendingTypes = null;
             if (pendingTypes.size() == 1) {
@@ -630,6 +656,62 @@ public class DependencyAnalyzer implements DependencyInfo {
             for (DependencyListener listener : listeners) {
                 listener.completing(agent);
             }
+        }
+
+        if (dependencyReport) {
+            reportDependencies();
+        }
+    }
+
+    private void reportDependencies() {
+        List<ReportEntry> report = new ArrayList<>();
+        int domainCount = 0;
+        for (DependencyNode node : allNodes) {
+            String tag = node.tag + "";
+            if (node.typeSet != null && node.typeSet.origin == node) {
+                ++domainCount;
+                tag += "{*}";
+            }
+            report.add(new ReportEntry(tag, node.getTypes().length));
+        }
+
+        report.sort(Comparator.comparingInt(n -> -n.count));
+        for (ReportEntry entry : report) {
+            System.out.println(entry.title + ": " + entry.count);
+        }
+
+        System.out.println("Total nodes: " + allNodes.size());
+        System.out.println("Total domains: " + domainCount);
+    }
+
+    public void cleanup() {
+        for (DependencyNode node : allNodes) {
+            node.followers = null;
+            node.transitions = null;
+            node.transitionList = null;
+            node.method = null;
+            if (node.typeSet != null) {
+                node.typeSet.cleanup();
+            }
+        }
+
+        for (MethodReference reachableMethod : getReachableMethods()) {
+            MethodDependency dependency = getMethod(reachableMethod);
+            for (int i = dependency.getParameterCount() + 1; i < dependency.getVariableCount(); ++i) {
+                dependency.variableNodes[i] = null;
+            }
+        }
+
+        allNodes.clear();
+    }
+
+    static class ReportEntry {
+        String title;
+        int count;
+
+        ReportEntry(String title, int count) {
+            this.title = title;
+            this.count = count;
         }
     }
 
@@ -681,7 +763,24 @@ public class DependencyAnalyzer implements DependencyInfo {
         dependencyPlugins.put(method, dependencyPlugin);
     }
 
-    SuperClassFilter getSuperClassFilter(String superClass) {
-        return superClassFilters.computeIfAbsent(superClass, s -> new SuperClassFilter(classSource, s));
+    DependencyTypeFilter getSuperClassFilter(String superClass) {
+        DependencyTypeFilter result = superClassFilters.get(superClass);
+        if (result == null) {
+            if (superClass.startsWith("[")) {
+                char second = superClass.charAt(1);
+                if (second == '[') {
+                    result = new SuperArrayFilter(this, getSuperClassFilter(superClass.substring(1)));
+                } else if (second == 'L') {
+                    ValueType.Object itemType = (ValueType.Object) ValueType.parse(superClass.substring(1));
+                    result = new SuperArrayFilter(this, getSuperClassFilter(itemType.getClassName()));
+                } else {
+                    result = new ExactTypeFilter(superClass);
+                }
+            } else {
+                result = new SuperClassFilter(classSource, superClass);
+            }
+            superClassFilters.put(superClass, result);
+        }
+        return result;
     }
 }

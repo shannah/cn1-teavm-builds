@@ -441,7 +441,7 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
             if (statement.getLocation() != null) {
                 pushLocation(statement.getLocation());
             }
-            writer.appendClass(statement.getClassName()).append("_$callClinit();").softNewLine();
+            writer.append(naming.getNameForClassInit(statement.getClassName())).append("();").softNewLine();
             if (statement.isAsync()) {
                 emitSuspendChecker();
             }
@@ -466,10 +466,6 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
     }
 
     private String generateVariableName(int index) {
-        if (index == 0 && minifying) {
-            return "$t";
-        }
-
         if (!minifying) {
             VariableNode variable = index < currentMethod.getVariables().size()
                     ? currentMethod.getVariables().get(index)
@@ -488,7 +484,7 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                 return "var$" + index;
             }
         } else {
-            return RenderingUtil.indexToId(--index);
+            return RenderingUtil.indexToId(index);
         }
     }
 
@@ -1358,6 +1354,9 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
                     precedence = Precedence.CONDITIONAL.next();
                     expr.getExpr().acceptVisitor(this);
                     writer.append(" instanceof ").appendClass(clsName);
+                    if (needsParentheses) {
+                        writer.append(')');
+                    }
                     if (expr.getLocation() != null) {
                         popLocation();
                     }

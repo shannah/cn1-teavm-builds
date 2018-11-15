@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.lang;
 
+import java.util.Iterator;
 import java.util.Locale;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.io.TUnsupportedEncodingException;
@@ -29,6 +30,7 @@ import org.teavm.classlib.java.util.THashMap;
 import org.teavm.classlib.java.util.TLocale;
 import org.teavm.classlib.java.util.TMap;
 import org.teavm.classlib.java.util.regex.TPattern;
+import org.teavm.interop.Unmanaged;
 
 public class TString extends TObject implements TSerializable, TComparable<TString>, TCharSequence {
     public static final TComparator<TString> CASE_INSENSITIVE_ORDER = (o1, o2) -> o1.compareToIgnoreCase(o2);
@@ -411,8 +413,9 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
     }
 
     public boolean contains(TCharSequence s) {
+        int sz = length() - s.length();
         outer:
-        for (int i = 0; i < length(); ++i) {
+        for (int i = 0; i <= sz; ++i) {
             for (int j = 0; j < s.length(); ++j) {
                 if (charAt(i + j) != s.charAt(j)) {
                     continue outer;
@@ -578,6 +581,7 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
         return hashCode;
     }
 
+    @Unmanaged
     public static TString wrap(String str) {
         return (TString) (Object) str;
     }
@@ -663,5 +667,49 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
 
     public static String format(Locale l, String format, Object... args) {
         return new TFormatter(l).format(format, args).toString();
+    }
+
+    public static String join(CharSequence delimiter, CharSequence... elements) {
+        if (elements.length == 0) {
+            return "";
+        }
+        int resultLength = 0;
+        for (CharSequence element : elements) {
+            resultLength += element.length();
+        }
+        resultLength += elements.length * delimiter.length();
+
+        char[] chars = new char[resultLength];
+        int index = 0;
+        CharSequence firstElement = elements[0];
+        for (int i = 0; i < firstElement.length(); ++i) {
+            chars[index++] = firstElement.charAt(i);
+        }
+        for (int i = 1; i < elements.length; ++i) {
+            for (int j = 0; j < delimiter.length(); ++j) {
+                chars[index++] = delimiter.charAt(j);
+            }
+            CharSequence element = elements[i];
+            for (int j = 0; j < element.length(); ++j) {
+                chars[index++] = element.charAt(j);
+            }
+        }
+
+        return new String(chars);
+    }
+
+    public static String join(CharSequence delimiter, Iterable<? extends CharSequence> elements) {
+        Iterator<? extends CharSequence> iter = elements.iterator();
+        if (!iter.hasNext()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(iter.next());
+        while (iter.hasNext()) {
+            sb.append(delimiter);
+            sb.append(iter.next());
+        }
+        return sb.toString();
     }
 }

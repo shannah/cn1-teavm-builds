@@ -15,8 +15,8 @@
  */
 package org.teavm.parsing;
 
+import com.carrotsearch.hppc.IntIntHashMap;
 import com.carrotsearch.hppc.IntIntMap;
-import com.carrotsearch.hppc.IntIntOpenHashMap;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,14 +57,17 @@ import org.teavm.model.util.PhiUpdater;
 import org.teavm.model.util.ProgramUtils;
 
 public class Parser {
+    private static final int DECL_CLASS = 0;
+    private static final int DECL_METHOD = 1;
+    private static final int DECL_FIELD = 2;
     private ReferenceCache referenceCache;
 
     public Parser(ReferenceCache referenceCache) {
         this.referenceCache = referenceCache;
     }
 
-    public MethodHolder parseMethod(MethodNode node, String className, String fileName) {
-        MethodNode nodeWithoutJsr = new MethodNode(Opcodes.ASM5, node.access, node.name, node.desc, node.signature,
+    public MethodHolder parseMethod(MethodNode node, String fileName) {
+        MethodNode nodeWithoutJsr = new MethodNode(Opcodes.ASM7, node.access, node.name, node.desc, node.signature,
                 node.exceptions.toArray(new String[0]));
         JSRInlinerAdapter adapter = new JSRInlinerAdapter(nodeWithoutJsr, node.access, node.name, node.desc,
                 node.signature, node.exceptions.toArray(new String[0]));
@@ -72,11 +75,11 @@ public class Parser {
         node = nodeWithoutJsr;
         ValueType[] signature = MethodDescriptor.parseSignature(node.desc);
         MethodHolder method = new MethodHolder(node.name, signature);
-        parseModifiers(node.access, method);
+        parseModifiers(node.access, method, DECL_METHOD);
 
         ProgramParser programParser = new ProgramParser(referenceCache);
         programParser.setFileName(fileName);
-        Program program = programParser.parse(node, className);
+        Program program = programParser.parse(node);
         new UnreachableBasicBlockEliminator().optimize(program);
         PhiUpdater phiUpdater = new PhiUpdater();
         Variable[] argumentMapping = applySignature(program, method.getParameterTypes());
@@ -157,7 +160,7 @@ public class Parser {
         Step[] stack = new Step[program.basicBlockCount()];
         int top = 0;
 
-        IntIntOpenHashMap entryVarMap = new IntIntOpenHashMap();
+        IntIntHashMap entryVarMap = new IntIntHashMap();
         for (int i = 0; i < argumentMapping.length; ++i) {
             Variable arg = argumentMapping[i];
             if (arg != null) {
@@ -169,7 +172,7 @@ public class Parser {
         while (top > 0) {
             Step step = stack[--top];
             int node = step.node;
-            IntIntMap varMap = new IntIntOpenHashMap(step.varMap);
+            IntIntMap varMap = new IntIntHashMap(step.varMap);
             BasicBlock block = program.basicBlockAt(node);
 
             for (Phi phi : block.getPhis()) {
@@ -180,7 +183,7 @@ public class Parser {
                 }
             }
 
-            result[node] = new IntIntOpenHashMap(varMap);
+            result[node] = new IntIntHashMap(varMap);
 
             for (Instruction insn : block) {
                 insn.acceptVisitor(defExtractor);
@@ -193,7 +196,7 @@ public class Parser {
             }
 
             for (int successor : dom.outgoingEdges(node)) {
-                stack[top++] = new Step(successor, new IntIntOpenHashMap(varMap));
+                stack[top++] = new Step(successor, new IntIntHashMap(varMap));
             }
         }
 
@@ -227,7 +230,7 @@ public class Parser {
 
     public ClassHolder parseClass(ClassNode node) {
         ClassHolder cls = new ClassHolder(node.name.replace('/', '.'));
-        parseModifiers(node.access, cls);
+        parseModifiers(node.access, cls, DECL_CLASS);
         if (node.superName != null) {
             cls.setParent(node.superName.replace('/', '.'));
         }
@@ -245,7 +248,7 @@ public class Parser {
         }
         String fullFileName = node.name.substring(0, node.name.lastIndexOf('/') + 1) + node.sourceFile;
         for (MethodNode methodNode : node.methods) {
-            cls.addMethod(parseMethod(methodNode, node.name, fullFileName));
+            cls.addMethod(parseMethod(methodNode, fullFileName));
         }
         if (node.outerClass != null) {
             cls.setOwnerName(node.outerClass.replace('/', '.'));
@@ -263,12 +266,12 @@ public class Parser {
         FieldHolder field = new FieldHolder(node.name);
         field.setType(ValueType.parse(node.desc));
         field.setInitialValue(node.value);
-        parseModifiers(node.access, field);
+        parseModifiers(node.access, field, DECL_FIELD);
         parseAnnotations(field.getAnnotations(), node.visibleAnnotations, node.invisibleAnnotations);
         return field;
     }
 
-    public void parseModifiers(int access, ElementHolder member) {
+    public void parseModifiers(int access, ElementHolder member, int type) {
         if ((access & Opcodes.ACC_PRIVATE) != 0) {
             member.setLevel(AccessLevel.PRIVATE);
         } else if ((access & Opcodes.ACC_PROTECTED) != 0) {
@@ -284,7 +287,9 @@ public class Parser {
             member.getModifiers().add(ElementModifier.ANNOTATION);
         }
         if ((access & Opcodes.ACC_BRIDGE) != 0) {
-            member.getModifiers().add(ElementModifier.BRIDGE);
+            if (type == DECL_METHOD) {
+                member.getModifiers().add(ElementModifier.BRIDGE);
+            }
         }
         if ((access & Opcodes.ACC_DEPRECATED) != 0) {
             member.getModifiers().add(ElementModifier.DEPRECATED);
@@ -307,23 +312,28 @@ public class Parser {
         if ((access & Opcodes.ACC_STRICT) != 0) {
             member.getModifiers().add(ElementModifier.STRICT);
         }
-        if ((access & Opcodes.ACC_SUPER) != 0) {
-            member.getModifiers().add(ElementModifier.SUPER);
-        }
         if ((access & Opcodes.ACC_SYNCHRONIZED) != 0) {
-            member.getModifiers().add(ElementModifier.SYNCHRONIZED);
+            if (type == DECL_METHOD) {
+                member.getModifiers().add(ElementModifier.SYNCHRONIZED);
+            }
         }
         if ((access & Opcodes.ACC_SYNTHETIC) != 0) {
             member.getModifiers().add(ElementModifier.SYNTHETIC);
         }
         if ((access & Opcodes.ACC_TRANSIENT) != 0) {
-            member.getModifiers().add(ElementModifier.TRANSIENT);
+            if (type == DECL_FIELD) {
+                member.getModifiers().add(ElementModifier.TRANSIENT);
+            }
         }
         if ((access & Opcodes.ACC_VARARGS) != 0) {
-            member.getModifiers().add(ElementModifier.VARARGS);
+            if (type == DECL_FIELD) {
+                member.getModifiers().add(ElementModifier.VARARGS);
+            }
         }
         if ((access & Opcodes.ACC_VOLATILE) != 0) {
-            member.getModifiers().add(ElementModifier.VOLATILE);
+            if (type == DECL_FIELD) {
+                member.getModifiers().add(ElementModifier.VOLATILE);
+            }
         }
     }
 

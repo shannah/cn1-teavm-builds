@@ -159,7 +159,7 @@ public class AsyncMethodFinder {
                 || method.getAnnotations().get(InjectedBy.class.getName()) != null) {
             if (method.getAnnotations().get(SuppressSyncErrors.class.getName()) == null) {
                 diagnostics.error(new CallLocation(methodRef), "Method {{m0}} is claimed to be "
-                        + "synchronous, but it is has invocations of asynchronous methods:" 
+                        + "synchronous, but it is has invocations of asynchronous methods:"
                         + stack.toString(), methodRef);
                 return;
             } else {

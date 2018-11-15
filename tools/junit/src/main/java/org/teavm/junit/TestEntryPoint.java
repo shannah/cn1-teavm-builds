@@ -32,4 +32,8 @@ final class TestEntryPoint {
     private static native void launchTest();
 
     private static native boolean isExpectedException(Class<?> cls);
+
+    public static void main(String[] args) throws Throwable {
+        run();
+    }
 }

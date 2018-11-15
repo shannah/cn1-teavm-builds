@@ -15,16 +15,14 @@
  */
 package org.teavm.tooling;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -32,9 +30,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
-import org.apache.commons.io.IOUtils;
+import org.teavm.backend.c.CTarget;
 import org.teavm.backend.javascript.JavaScriptTarget;
-import org.teavm.backend.javascript.rendering.RenderingManager;
 import org.teavm.backend.wasm.WasmTarget;
 import org.teavm.backend.wasm.render.WasmBinaryVersion;
 import org.teavm.cache.DiskCachedClassHolderSource;
@@ -49,7 +46,6 @@ import org.teavm.model.ClassHolderSource;
 import org.teavm.model.ClassHolderTransformer;
 import org.teavm.model.ClassReader;
 import org.teavm.model.ClassReaderSource;
-import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.PreOptimizingClassHolderSource;
@@ -64,7 +60,6 @@ import org.teavm.vm.TeaVMBuilder;
 import org.teavm.vm.TeaVMOptimizationLevel;
 import org.teavm.vm.TeaVMProgressListener;
 import org.teavm.vm.TeaVMTarget;
-import org.teavm.vm.spi.AbstractRendererListener;
 
 public class TeaVMTool implements BaseTeaVMTool {
     private File targetDirectory = new File(".");
@@ -72,7 +67,6 @@ public class TeaVMTool implements BaseTeaVMTool {
     private String targetFileName = "";
     private boolean minifying = true;
     private String mainClass;
-    private RuntimeCopyOperation runtime = RuntimeCopyOperation.SEPARATE;
     private Properties properties = new Properties();
     private boolean debugInformationGenerated;
     private boolean sourceMapsFileGenerated;
@@ -97,7 +91,9 @@ public class TeaVMTool implements BaseTeaVMTool {
     private JavaScriptTarget javaScriptTarget;
     private WasmTarget webAssemblyTarget;
     private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0x1;
+    private CTarget cTarget;
     private Set<File> generatedFiles = new HashSet<>();
+    private int minHeapSize = 32 * (1 << 20);
 
     public File getTargetDirectory() {
         return targetDirectory;
@@ -140,14 +136,6 @@ public class TeaVMTool implements BaseTeaVMTool {
 
     public void setMainClass(String mainClass) {
         this.mainClass = mainClass;
-    }
-
-    public RuntimeCopyOperation getRuntime() {
-        return runtime;
-    }
-
-    public void setRuntime(RuntimeCopyOperation runtime) {
-        this.runtime = runtime;
     }
 
     public boolean isDebugInformationGenerated() {
@@ -222,6 +210,10 @@ public class TeaVMTool implements BaseTeaVMTool {
 
     public void setOptimizationLevel(TeaVMOptimizationLevel optimizationLevel) {
         this.optimizationLevel = optimizationLevel;
+    }
+
+    public void setMinHeapSize(int minHeapSize) {
+        this.minHeapSize = minHeapSize;
     }
 
     public ClassLoader getClassLoader() {
@@ -308,6 +300,8 @@ public class TeaVMTool implements BaseTeaVMTool {
                 return prepareJavaScriptTarget();
             case WEBASSEMBLY:
                 return prepareWebAssemblyTarget();
+            case C:
+                return prepareCTarget();
         }
         throw new IllegalStateException("Unknown target type: " + targetType);
     }
@@ -333,7 +327,14 @@ public class TeaVMTool implements BaseTeaVMTool {
         webAssemblyTarget.setCEmitted(debugInformationGenerated);
         webAssemblyTarget.setWastEmitted(debugInformationGenerated);
         webAssemblyTarget.setVersion(wasmVersion);
+        webAssemblyTarget.setMinHeapSize(minHeapSize);
         return webAssemblyTarget;
+    }
+
+    private CTarget prepareCTarget() {
+        cTarget = new CTarget();
+        cTarget.setMinHeapSize(minHeapSize);
+        return cTarget;
     }
 
     public void generate() throws TeaVMToolException {
@@ -380,20 +381,13 @@ public class TeaVMTool implements BaseTeaVMTool {
                 vm.add(transformer);
             }
             if (mainClass != null) {
-                MethodDescriptor mainMethodDesc = new MethodDescriptor("main", String[].class, void.class);
-                vm.entryPoint("main", new MethodReference(mainClass, mainMethodDesc))
-                        .withValue(1, "[java.lang.String")
-                        .withArrayValue(1, "java.lang.String")
-                        .async();
+                vm.entryPoint(mainClass);
             }
             for (String className : classesToPreserve) {
                 vm.preserveType(className);
             }
             targetDirectory.mkdirs();
 
-            if (runtime == RuntimeCopyOperation.MERGED) {
-                javaScriptTarget.add(runtimeInjector);
-            }
             BuildTarget buildTarget = new DirectoryBuildTarget(targetDirectory);
             String outputName = getResolvedTargetFileName();
             vm.build(buildTarget, outputName);
@@ -419,7 +413,7 @@ public class TeaVMTool implements BaseTeaVMTool {
 
             if (targetType == TeaVMTargetType.JAVASCRIPT) {
                 try (OutputStream output = new FileOutputStream(new File(targetDirectory, outputName), true)) {
-                    try (Writer writer = new OutputStreamWriter(output, "UTF-8")) {
+                    try (Writer writer = new OutputStreamWriter(output, StandardCharsets.UTF_8)) {
                         additionalJavaScriptOutput(writer);
                     }
                 }
@@ -449,6 +443,8 @@ public class TeaVMTool implements BaseTeaVMTool {
                     return "classes.js";
                 case WEBASSEMBLY:
                     return "classes.wasm";
+                case C:
+                    return "classes.c";
                 default:
                     return "classes";
             }
@@ -457,10 +453,6 @@ public class TeaVMTool implements BaseTeaVMTool {
     }
 
     private void additionalJavaScriptOutput(Writer writer) throws IOException {
-        if (mainClass != null) {
-            writer.append("main = $rt_mainStarter(main);\n");
-        }
-
         if (debugInformationGenerated) {
             assert debugEmitter != null;
             DebugInformation debugInfo = debugEmitter.getDebugInformation();
@@ -477,7 +469,8 @@ public class TeaVMTool implements BaseTeaVMTool {
             String sourceMapsFileName = getResolvedTargetFileName() + ".map";
             writer.append("\n//# sourceMappingURL=").append(sourceMapsFileName);
             File sourceMapsFile = new File(targetDirectory, sourceMapsFileName);
-            try (Writer sourceMapsOut = new OutputStreamWriter(new FileOutputStream(sourceMapsFile), "UTF-8")) {
+            try (Writer sourceMapsOut = new OutputStreamWriter(new FileOutputStream(sourceMapsFile),
+                    StandardCharsets.UTF_8)) {
                 debugInfo.writeAsSourceMaps(sourceMapsOut, "src", getResolvedTargetFileName());
             }
             generatedFiles.add(sourceMapsFile);
@@ -486,10 +479,6 @@ public class TeaVMTool implements BaseTeaVMTool {
         if (sourceFilesCopied) {
             copySourceFiles();
             log.info("Source files successfully written");
-        }
-
-        if (runtime == RuntimeCopyOperation.SEPARATE) {
-            resourceToFile("org/teavm/backend/javascript/runtime.js", "runtime.js");
         }
     }
 
@@ -517,31 +506,5 @@ public class TeaVMTool implements BaseTeaVMTool {
         copier.addClasses(vm.getWrittenClasses());
         copier.setLog(log);
         copier.copy(new File(targetDirectory, "src"));
-    }
-
-    private AbstractRendererListener runtimeInjector = new AbstractRendererListener() {
-        @Override
-        public void begin(RenderingManager manager, BuildTarget buildTarget) throws IOException {
-            StringWriter writer = new StringWriter();
-            resourceToWriter("org/teavm/backend/javascript/runtime.js", writer);
-            writer.close();
-            manager.getWriter().append(writer.toString()).newLine();
-        }
-    };
-
-    private void resourceToFile(String resource, String fileName) throws IOException {
-        try (InputStream input = TeaVMTool.class.getClassLoader().getResourceAsStream(resource)) {
-            File outputFile = new File(targetDirectory, fileName);
-            try (OutputStream output = new BufferedOutputStream(new FileOutputStream(outputFile))) {
-                IOUtils.copy(new BufferedInputStream(input), output);
-            }
-            generatedFiles.add(outputFile);
-        }
-    }
-
-    private void resourceToWriter(String resource, Writer writer) throws IOException {
-        try (InputStream input = TeaVMTool.class.getClassLoader().getResourceAsStream(resource)) {
-            IOUtils.copy(new BufferedInputStream(input), writer, "UTF-8");
-        }
     }
 }

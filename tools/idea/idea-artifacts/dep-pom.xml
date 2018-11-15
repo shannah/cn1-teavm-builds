@@ -100,7 +100,7 @@
             <configuration>
               <target>
                 <mkdir dir="${basedir}/dependencies/"/>
-                <get src="https://download.plugins.jetbrains.com/1347/34745/scala-intellij-bin-SNAPSHOT.zip?updateId=34745&amp;pluginId=1347"
+                <get src="https://plugins.jetbrains.com/plugin/download?updateId=42362"
                      dest="${basedir}/dependencies/scala.zip"/>
                 <unzip src="${basedir}/dependencies/scala.zip" dest="${basedir}/dependencies"/>
               </target>
@@ -115,7 +115,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3.0.0</version>
+        <version>3.1.1</version>
         <executions>
           <execution>
             <phase>package</phase>
@@ -270,6 +270,17 @@
             <configuration>
               <file>dependencies/idea/lib/jps-builders.jar</file>
               <artifactId>jps-builders</artifactId>
+            </configuration>
+          </execution>
+          <execution>
+            <id>jps-builders-6</id>
+            <goals>
+              <goal>install-file</goal>
+            </goals>
+            <phase>prepare-package</phase>
+            <configuration>
+              <file>dependencies/idea/lib/jps-builders-6.jar</file>
+              <artifactId>jps-builders-6</artifactId>
             </configuration>
           </execution>
           <execution>

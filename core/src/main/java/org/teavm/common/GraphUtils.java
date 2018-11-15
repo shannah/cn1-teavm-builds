@@ -15,6 +15,7 @@
  */
 package org.teavm.common;
 
+import com.carrotsearch.hppc.IntStack;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -64,6 +65,43 @@ public final class GraphUtils {
             }
         }
         return result.getAll();
+    }
+
+    public static Graph removeLoops(Graph graph) {
+        int sz = graph.size();
+        int[] stack = new int[sz * 2];
+        int stackSize = 0;
+        byte[] state = new byte[sz];
+        for (int i = 0; i < sz; ++i) {
+            if (graph.incomingEdgesCount(i) == 0) {
+                stack[stackSize++] = i;
+            }
+        }
+        GraphBuilder builder = new GraphBuilder(graph.size());
+        while (stackSize > 0) {
+            int node = stack[--stackSize];
+            switch (state[node]) {
+                case NONE:
+                    state[node] = VISITING;
+                    stack[stackSize++] = node;
+                    for (int next : graph.outgoingEdges(node)) {
+                        switch (state[next]) {
+                            case NONE:
+                                stack[stackSize++] = next;
+                                builder.addEdge(node, next);
+                                break;
+                            case VISITED:
+                                builder.addEdge(node, next);
+                                break;
+                        }
+                    }
+                    break;
+                case VISITING:
+                    state[node] = VISITED;
+                    break;
+            }
+        }
+        return builder.build();
     }
 
     public static boolean isIrreducible(Graph graph) {
@@ -164,64 +202,98 @@ public final class GraphUtils {
 
     /*
      * Tarjan's algorithm
+     * See pseudocode at https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm
+     * This is a stackless version.
      */
-    public static int[][] findStronglyConnectedComponents(Graph graph, int[] start) {
+    public static int[][] findStronglyConnectedComponents(Graph graph) {
         List<int[]> components = new ArrayList<>();
-        int[] visitIndex = new int[graph.size()];
-        int[] headerIndex = new int[graph.size()];
-        IntegerStack currentComponent = new IntegerStack(1);
-        boolean[] inCurrentComponent = new boolean[graph.size()];
-        int lastIndex = 1;
-        IntegerStack stack = new IntegerStack(graph.size());
-        IntegerStack modeStack = new IntegerStack(graph.size());
-        int[] expectedMode = new int[graph.size()];
 
-        for (int startNode : start) {
-            stack.push(startNode);
-            modeStack.push(0);
+        int index = 0;
+        IntStack procStack = new IntStack();
+        IntStack stack = new IntStack();
+        int[] nodeIndex = new int[graph.size()];
+        int[] nodeLowLink = new int[graph.size()];
+        boolean[] nodeOnStack = new boolean[graph.size()];
+
+        Arrays.fill(nodeIndex, -1);
+        Arrays.fill(nodeLowLink, -2);
+
+        for (int i = 0; i < graph.size(); ++i) {
+            procStack.push(i);
+            procStack.push(0);
         }
 
-        while (!stack.isEmpty()) {
-            int node = stack.pop();
-            int mode = modeStack.pop();
-            if (expectedMode[node] != mode) {
-                continue;
-            }
-            expectedMode[node]++;
-            if (mode == 1) {
-                expectedMode[node] = 2;
-                int hdr = headerIndex[node];
-                for (int successor : graph.outgoingEdges(node)) {
-                    if (visitIndex[node] < visitIndex[successor]) {
-                        hdr = Math.min(hdr, headerIndex[successor]);
-                    } else if (inCurrentComponent[successor]) {
-                        hdr = Math.min(hdr, visitIndex[successor]);
+        while (!procStack.isEmpty()) {
+            int state = procStack.pop();
+            int v = procStack.pop();
+
+            switch (state) {
+                case 0: {
+                    if (nodeIndex[v] >= 0) {
+                        break;
                     }
-                }
-                headerIndex[node] = hdr;
+                    nodeIndex[v] = index;
+                    nodeLowLink[v] = index;
+                    index++;
+                    stack.push(v);
+                    nodeOnStack[v] = true;
 
-                if (hdr == visitIndex[node]) {
-                    IntegerArray componentMembers = new IntegerArray(graph.size());
-                    int componentMember;
-                    do {
-                        componentMember = currentComponent.pop();
-                        inCurrentComponent[componentMember] = false;
-                        componentMembers.add(componentMember);
-                    } while (componentMember != node);
-                    components.add(componentMembers.getAll());
-                }
-            } else if (mode == 0) {
-                visitIndex[node] = lastIndex;
-                headerIndex[node] = lastIndex;
-                lastIndex++;
+                    procStack.push(v);
+                    procStack.push(3);
 
-                currentComponent.push(node);
-                inCurrentComponent[node] = true;
-                stack.push(node);
-                modeStack.push(1);
-                for (int successor : graph.outgoingEdges(node)) {
-                    stack.push(successor);
-                    modeStack.push(0);
+                    for (int w : graph.outgoingEdges(v)) {
+                        procStack.push(w);
+                        procStack.push(v);
+                        procStack.push(1);
+                    }
+                    break;
+                }
+
+                case 1: {
+                    int w = procStack.pop();
+
+                    if (nodeIndex[w] < 0) {
+                        procStack.push(w);
+                        procStack.push(v);
+                        procStack.push(2);
+
+                        procStack.push(w);
+                        procStack.push(0);
+                    } else if (nodeOnStack[w]) {
+                        nodeLowLink[v] = Math.min(nodeLowLink[v], nodeIndex[w]);
+                    }
+
+                    break;
+                }
+
+                case 2: {
+                    int w = procStack.pop();
+                    nodeLowLink[v] = Math.min(nodeLowLink[v], nodeLowLink[w]);
+                    break;
+                }
+
+                case 3: {
+                    if (nodeLowLink[v] == nodeIndex[v]) {
+                        IntegerArray scc = new IntegerArray(4);
+                        int w;
+                        do {
+                            w = stack.pop();
+                            nodeOnStack[w] = false;
+                            scc.add(w);
+                        } while (w != v);
+
+                        if (scc.size() > 1) {
+                            components.add(scc.getAll());
+                        } else {
+                            for (int successor : graph.outgoingEdges(v)) {
+                                if (successor == v) {
+                                    components.add(scc.getAll());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    break;
                 }
             }
         }

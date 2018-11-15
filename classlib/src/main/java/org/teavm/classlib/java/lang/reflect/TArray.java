@@ -47,6 +47,7 @@ public final class TArray extends TObject {
         return array.size;
     }
 
+    @PluggableDependency(ArrayNativeGenerator.class)
     public static TObject newInstance(TClass<?> componentType, int length) throws TNegativeArraySizeException {
         if (componentType == null) {
             throw new TNullPointerException();
@@ -61,7 +62,6 @@ public final class TArray extends TObject {
     }
 
     @GeneratedBy(ArrayNativeGenerator.class)
-    @PluggableDependency(ArrayNativeGenerator.class)
     @DelegateTo("newInstanceLowLevel")
     private static native TObject newInstanceImpl(PlatformClass componentType, int length);
 
@@ -79,7 +79,19 @@ public final class TArray extends TObject {
         return getImpl(array, index);
     }
 
+    public static void set(TObject array, int index, TObject value) throws TIllegalArgumentException,
+            TArrayIndexOutOfBoundsException {
+        if (index < 0 || index >= getLength(array)) {
+            throw new TArrayIndexOutOfBoundsException();
+        }
+        setImpl(array, index, value);
+    }
+
     @GeneratedBy(ArrayNativeGenerator.class)
     @PluggableDependency(ArrayNativeGenerator.class)
     private static native TObject getImpl(TObject array, int index);
+
+    @GeneratedBy(ArrayNativeGenerator.class)
+    @PluggableDependency(ArrayNativeGenerator.class)
+    private static native void setImpl(TObject array, int index, TObject value);
 }
