@@ -22,7 +22,6 @@ import org.teavm.jso.browser.TimerHandler;
 import org.teavm.jso.browser.Window;
 
 public class TTimer extends TObject {
-    TSet<TTimerTask> tasks = new THashSet<>();
     private boolean cancelled;
 
     public TTimer() {
@@ -32,78 +31,93 @@ public class TTimer extends TObject {
     }
 
     public void cancel() {
-        if (cancelled) {
-            return;
-        }
         cancelled = true;
-        for (TTimerTask task : tasks.toArray(new TTimerTask[0])) {
-            task.cancel();
-        }
     }
 
-    public void schedule(final TTimerTask task, long delay) {
-        if (cancelled || task.timer != null || task.nativeTimerId >= 0) {
-            throw new TIllegalStateException();
+    
+    private class TimerHandlerImpl implements TimerHandler {
+        private TTimerTask task;
+        private long period;
+        
+        private TimerHandlerImpl(TTimerTask task, long period) {
+            this.task = task;
+            this.period = period;
         }
-        task.timer = this;
-        task.nativeTimerId = Window.setTimeout(() -> {
+        @Override
+        public void onTimer() {
             new Thread(() -> {
-                if (cancelled || task.timer == null) {
+                if (cancelled || task.canceled || task.complete) {
                     return;
                 }
-                TTimerTask.performOnce(task);
+                task.nativeTimerId = Window.setTimeout(new TimerHandlerImpl(task, period), (int) period);
+                new Thread(() -> {
+                    task.runImpl(false);
+                }).start();
+            }).start();
+        }
+    }
+    
+    private class FixedRateTimerHandlerImpl implements TimerHandler {
+        private TTimerTask task;
+        private long period;
+        private long delay;
+        private long scheduledStartTime;
+        private FixedRateTimerHandlerImpl(TTimerTask task, long scheduledStartTime, long period) {
+            this.task = task;
+            this.period = period;
+            this.scheduledStartTime = scheduledStartTime;
+        }
+        @Override
+        public void onTimer() {
+            new Thread(() -> {
+                if (cancelled || task.canceled || task.complete) {
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                long nextScheduledTime = scheduledStartTime + period;
+                while (nextScheduledTime <= now) {
+                    nextScheduledTime += period;
+                }
+                
+                task.nativeTimerId = Window.setTimeout(
+                        new FixedRateTimerHandlerImpl(task, nextScheduledTime, period), 
+                        (int) nextScheduledTime - now
+                        );
+                new Thread(() -> {
+                    task.runImpl(false);
+                }).start();
+                
+            }).start();
+        }
+    }
+    
+    public void schedule(final TTimerTask task, long delay) {
+        if (cancelled || task.canceled || task.complete || task.nativeTimerId >= 0) {
+            throw new TIllegalStateException();
+        }
+        task.nativeTimerId = Window.setTimeout(() -> {
+            new Thread(() -> {
+                if (cancelled || task.canceled || task.complete) {
+                    return;
+                }
+                task.runImpl(true);
             }).start();
         }, (int) delay);
     }
 
     public void schedule(final TTimerTask task, long delay, final long period) {
-        if (cancelled || task.timer != null || task.nativeTimerId >= 0) {
+        if (cancelled || task.canceled || task.nativeTimerId >= 0 || task.complete) {
             throw new TIllegalStateException();
         }
-        task.timer = this;
-        TimerHandler handler = new TimerHandler() {
-            @Override public void onTimer() {
-                new Thread(() -> {
-                    if (cancelled || task.timer == null) {
-                        return;
-                    }
-                    task.nativeTimerId = Window.setTimeout(this, (int) period);
-                    TTimerTask.performOnce(task);
-                    if (!cancelled) {
-                        task.timer = TTimer.this;
-                    }
-                }).start();
-            }
-        };
+        TimerHandler handler = new TimerHandlerImpl(task, period);
         task.nativeTimerId = Window.setTimeout(handler, (int) delay);
     }
     
     public void scheduleAtFixedRate(final TTimerTask task, long delay, long period) {
-        if (cancelled || task.timer != null || task.nativeTimerId >= 0) {
+        if (cancelled || task.canceled || task.complete || task.nativeTimerId >= 0) {
             throw new TIllegalStateException();
         }
-        final long[] nextStartTime = new long[]{System.currentTimeMillis() + delay};
-        task.timer = this;
-        TimerHandler handler = new TimerHandler() {
-            @Override public void onTimer() {
-                new Thread(() -> {
-                    if (cancelled || task.timer == null) {
-                        return;
-                    }
-                    long nextDelay = nextStartTime[0] - System.currentTimeMillis();
-                    if (nextDelay < 0) {
-                        nextDelay = 0;
-                    }
-                    task.nativeTimerId = Window.setTimeout(this, (int) nextDelay);
-                    nextStartTime[0] += period;
-                    TTimerTask.performOnce(task);
-                    if (!cancelled) {
-                        task.timer = TTimer.this;
-                    }
-                }).start();
-            }
-        };
+        TimerHandler handler = new FixedRateTimerHandlerImpl(task, System.currentTimeMillis() + delay, period);
         task.nativeTimerId = Window.setTimeout(handler, (int) delay);
-        nextStartTime[0] += period;
     }
 }
