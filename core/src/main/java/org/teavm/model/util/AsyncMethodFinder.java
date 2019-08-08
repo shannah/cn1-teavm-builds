@@ -172,7 +172,7 @@ public class AsyncMethodFinder {
                         + "is claimed to be synchronous, but it is has invocations of "
                         + "asynchronous methods:" + stack.toString(), methodRef);
             }
-
+        }
 
         if (!hasAsyncMethods && methodRef.getClassName().equals("java.lang.Object")
                 && (methodRef.getName().equals("monitorEnter") || methodRef.getName().equals("monitorExit"))) {
