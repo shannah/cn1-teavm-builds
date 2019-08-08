@@ -159,6 +159,7 @@ public class AsyncMethodFinder {
         if (method == null) {
             return;
         }
+        /*
         if (method.getAnnotations().get(Sync.class.getName()) != null
                 || method.getAnnotations().get(InjectedBy.class.getName()) != null) {
             if (method.getAnnotations().get(SuppressSyncErrors.class.getName()) == null) {
@@ -173,7 +174,7 @@ public class AsyncMethodFinder {
                         + "asynchronous methods:" + stack.toString(), methodRef);
             }
         }
-
+        */
         if (!hasAsyncMethods && methodRef.getClassName().equals("java.lang.Object")
                 && (methodRef.getName().equals("monitorEnter") || methodRef.getName().equals("monitorExit"))) {
             return;
