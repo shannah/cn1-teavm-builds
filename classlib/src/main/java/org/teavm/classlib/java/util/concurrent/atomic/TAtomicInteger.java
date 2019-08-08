@@ -21,6 +21,7 @@ import java.util.function.IntUnaryOperator;
 
 public class TAtomicInteger extends Number implements Serializable {
     private int value;
+    private int version;
 
     public TAtomicInteger() {
     }
@@ -35,15 +36,18 @@ public class TAtomicInteger extends Number implements Serializable {
 
     public final void set(int newValue) {
         value = newValue;
+        version++;
     }
 
     public final void lazySet(int newValue) {
         value = newValue;
+        version++;
     }
 
     public final int getAndSet(int newValue) {
         int result = value;
         value = newValue;
+        version++;
         return result;
     }
 
@@ -52,6 +56,7 @@ public class TAtomicInteger extends Number implements Serializable {
             return false;
         }
         value = update;
+        version++;
         return true;
     }
 
@@ -60,56 +65,93 @@ public class TAtomicInteger extends Number implements Serializable {
             return false;
         }
         value = update;
+        version++;
         return true;
     }
 
     public final int getAndIncrement() {
+        version++;
         return value++;
     }
 
     public final int getAndDecrement() {
+        version++;
         return value--;
     }
 
     public final int getAndAdd(int delta) {
+        version++;
         int result = value;
         value += delta;
         return result;
     }
 
     public final int incrementAndGet() {
+        version++;
         return ++value;
     }
 
     public final int decrementAndGet() {
+        version++;
         return --value;
     }
 
     public final int addAndGet(int delta) {
+        version++;
         value += delta;
         return value;
     }
 
     public final int getAndUpdate(IntUnaryOperator updateFunction) {
-        int result = value;
-        value = updateFunction.applyAsInt(value);
+        int expectedVersion;
+        int result;
+        int newValue;
+        do {
+            expectedVersion = version;
+            result = value;
+            newValue = updateFunction.applyAsInt(value);
+        } while (expectedVersion != version);
+        ++version;
+        value = newValue;
         return result;
     }
 
     public final int updateAndGet(IntUnaryOperator updateFunction) {
-        value = updateFunction.applyAsInt(value);
-        return value;
+        int expectedVersion;
+        int newValue;
+        do {
+            expectedVersion = version;
+            newValue = updateFunction.applyAsInt(value);
+        } while (expectedVersion != version);
+        ++version;
+        value = newValue;
+        return newValue;
     }
 
     public final int getAndAccumulate(int x, IntBinaryOperator accumulatorFunction) {
-        int result = value;
-        value = accumulatorFunction.applyAsInt(value, x);
+        int expectedVersion;
+        int newValue;
+        int result;
+        do {
+            expectedVersion = version;
+            result = value;
+            newValue = accumulatorFunction.applyAsInt(value, x);
+        } while (expectedVersion != version);
+        ++version;
+        value = newValue;
         return result;
     }
 
     public final int accumulateAndGet(int x, IntBinaryOperator accumulatorFunction) {
-        value = accumulatorFunction.applyAsInt(value, x);
-        return value;
+        int expectedVersion;
+        int newValue;
+        do {
+            expectedVersion = version;
+            newValue = accumulatorFunction.applyAsInt(value, x);
+        } while (expectedVersion != version);
+        ++version;
+        value = newValue;
+        return newValue;
     }
 
     @Override

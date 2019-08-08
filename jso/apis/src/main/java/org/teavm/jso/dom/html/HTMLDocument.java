@@ -73,4 +73,21 @@ public interface HTMLDocument extends Document, EventTarget {
     void execCommand(String commandName, boolean showDefaultUI, String valueArgument);
 
     void execCommand(String commandName);
+
+    @JSProperty
+    String getCookie();
+
+    @JSProperty
+    void setCookie(String cookie);
+
+    @JSProperty
+    String getTitle();
+
+    @JSProperty
+    void setTitle(String title);
+
+    @JSProperty
+    HTMLElement getPointerLockElement();
+
+    void exitPointerLock();
 }

@@ -15,17 +15,19 @@
  */
 package org.teavm.junit;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -41,7 +43,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import junit.framework.TestCase;
 import org.apache.commons.io.IOUtils;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Ignore;
+import org.junit.Test;
 import org.junit.runner.Description;
 import org.junit.runner.Runner;
 import org.junit.runner.manipulation.Filter;
@@ -54,48 +61,64 @@ import org.teavm.backend.c.CTarget;
 import org.teavm.backend.javascript.JavaScriptTarget;
 import org.teavm.backend.wasm.WasmTarget;
 import org.teavm.callgraph.CallGraph;
+import org.teavm.debugging.information.DebugInformation;
+import org.teavm.debugging.information.DebugInformationBuilder;
+import org.teavm.dependency.DependencyAnalyzerFactory;
+import org.teavm.dependency.FastDependencyAnalyzer;
+import org.teavm.dependency.PreciseDependencyAnalyzer;
 import org.teavm.diagnostics.DefaultProblemTextConsumer;
 import org.teavm.diagnostics.Problem;
+import org.teavm.model.AnnotationHolder;
+import org.teavm.model.AnnotationValue;
 import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassHolderSource;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHolder;
+import org.teavm.model.MethodReference;
 import org.teavm.model.PreOptimizingClassHolderSource;
+import org.teavm.model.ReferenceCache;
 import org.teavm.model.ValueType;
 import org.teavm.parsing.ClasspathClassHolderSource;
-import org.teavm.testing.JUnitTestAdapter;
-import org.teavm.testing.TestAdapter;
 import org.teavm.tooling.TeaVMProblemRenderer;
 import org.teavm.vm.DirectoryBuildTarget;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
+import org.teavm.vm.TeaVMOptimizationLevel;
 import org.teavm.vm.TeaVMTarget;
 
 public class TeaVMTestRunner extends Runner implements Filterable {
+    static final String JUNIT3_BASE_CLASS = "junit.framework.TestCase";
+    static final MethodReference JUNIT3_BEFORE = new MethodReference(JUNIT3_BASE_CLASS, "setUp", ValueType.VOID);
+    static final MethodReference JUNIT3_AFTER = new MethodReference(JUNIT3_BASE_CLASS, "tearDown", ValueType.VOID);
+    static final String JUNIT4_TEST = "org.junit.Test";
+    static final String JUNIT4_BEFORE = "org.junit.Before";
+    static final String JUNIT4_AFTER = "org.junit.After";
     private static final String PATH_PARAM = "teavm.junit.target";
     private static final String JS_RUNNER = "teavm.junit.js.runner";
-    private static final String THREAD_COUNT = "teavm.junit.js.threads";
-    private static final String SELENIUM_URL = "teavm.junit.js.selenium.url";
+    private static final String THREAD_COUNT = "teavm.junit.threads";
     private static final String JS_ENABLED = "teavm.junit.js";
+    static final String JS_DECODE_STACK = "teavm.junit.js.decodeStack";
     private static final String C_ENABLED = "teavm.junit.c";
     private static final String WASM_ENABLED = "teavm.junit.wasm";
     private static final String C_COMPILER = "teavm.junit.c.compiler";
+    private static final String C_LINE_NUMBERS = "teavm.junit.c.lineNumbers";
     private static final String MINIFIED = "teavm.junit.minified";
     private static final String OPTIMIZED = "teavm.junit.optimized";
+    private static final String FAST_ANALYSIS = "teavm.junit.fastAnalysis";
 
     private static final int stopTimeout = 15000;
     private Class<?> testClass;
-    private ClassHolder classHolder;
+    private ClassHolderSource classSource;
     private ClassLoader classLoader;
     private Description suiteDescription;
     private static Map<ClassLoader, ClassHolderSource> classSources = new WeakHashMap<>();
     private File outputDir;
-    private TestAdapter testAdapter = new JUnitTestAdapter();
     private Map<Method, Description> descriptions = new HashMap<>();
     private static Map<RunKind, RunnerKindInfo> runners = new HashMap<>();
     private static ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     private CountDownLatch latch;
     private List<Method> filteredChildren;
+    private ReferenceCache referenceCache = new ReferenceCache();
 
     static class RunnerKindInfo {
         volatile TestRunner runner;
@@ -124,8 +147,7 @@ public class TeaVMTestRunner extends Runner implements Filterable {
     public TeaVMTestRunner(Class<?> testClass) throws InitializationError {
         this.testClass = testClass;
         classLoader = TeaVMTestRunner.class.getClassLoader();
-        ClassHolderSource classSource = getClassSource(classLoader);
-        classHolder = classSource.get(testClass.getName());
+        classSource = getClassSource(classLoader);
         String outputPath = System.getProperty(PATH_PARAM);
         if (outputPath != null) {
             outputDir = new File(outputPath);
@@ -135,13 +157,6 @@ public class TeaVMTestRunner extends Runner implements Filterable {
         if (runStrategyName != null) {
             TestRunStrategy jsRunStrategy;
             switch (runStrategyName) {
-                case "selenium":
-                    try {
-                        jsRunStrategy = new SeleniumRunStrategy(new URL(System.getProperty(SELENIUM_URL)));
-                    } catch (MalformedURLException e) {
-                        throw new InitializationError(e);
-                    }
-                    break;
                 case "htmlunit":
                     jsRunStrategy = new HtmlUnitRunStrategy();
                     break;
@@ -166,7 +181,7 @@ public class TeaVMTestRunner extends Runner implements Filterable {
         if (suiteDescription == null) {
             suiteDescription = Description.createSuiteDescription(testClass);
             for (Method child : getFilteredChildren()) {
-                suiteDescription.getChildren().add(describeChild(child));
+                suiteDescription.addChild(describeChild(child));
             }
         }
         return suiteDescription;
@@ -196,13 +211,27 @@ public class TeaVMTestRunner extends Runner implements Filterable {
 
     private List<Method> getChildren() {
         List<Method> children = new ArrayList<>();
-        for (Method method : testClass.getDeclaredMethods()) {
-            MethodHolder methodHolder = classHolder.getMethod(getDescriptor(method));
-            if (testAdapter.acceptMethod(methodHolder)) {
-                children.add(method);
+        Class<?> cls = testClass;
+        Set<String> foundMethods = new HashSet<>();
+        while (cls != Object.class && !cls.getName().equals(JUNIT3_BASE_CLASS)) {
+            for (Method method : cls.getDeclaredMethods()) {
+                if (foundMethods.add(method.getName()) && isTestMethod(method)) {
+                    children.add(method);
+                }
             }
+            cls = cls.getSuperclass();
         }
+
         return children;
+    }
+
+    private boolean isTestMethod(Method method) {
+        if (TestCase.class.isAssignableFrom(method.getDeclaringClass())) {
+            return method.getName().startsWith("test") && method.getName().length() > 4
+                    && Character.isUpperCase(method.getName().charAt(4));
+        } else {
+            return method.isAnnotationPresent(Test.class);
+        }
     }
 
     private List<Method> getFilteredChildren() {
@@ -218,31 +247,38 @@ public class TeaVMTestRunner extends Runner implements Filterable {
     }
 
     private void runChild(Method child, RunNotifier notifier) {
-        notifier.fireTestStarted(describeChild(child));
+        Description description = describeChild(child);
+        notifier.fireTestStarted(description);
+
+        if (child.isAnnotationPresent(Ignore.class)) {
+            notifier.fireTestIgnored(description);
+            latch.countDown();
+            return;
+        }
 
         boolean ran = false;
         boolean success = true;
 
+        ClassHolder classHolder = classSource.get(child.getDeclaringClass().getName());
         MethodHolder methodHolder = classHolder.getMethod(getDescriptor(child));
         Set<Class<?>> expectedExceptions = new HashSet<>();
-        for (String exceptionName : testAdapter.getExpectedExceptions(methodHolder)) {
+        for (String exceptionName : getExpectedExceptions(methodHolder)) {
             try {
                 expectedExceptions.add(Class.forName(exceptionName, false, classLoader));
             } catch (ClassNotFoundException e) {
-                notifier.fireTestFailure(new Failure(describeChild(child), e));
-                notifier.fireTestFinished(describeChild(child));
+                notifier.fireTestFailure(new Failure(description, e));
+                notifier.fireTestFinished(description);
                 latch.countDown();
                 return;
             }
         }
 
         if (!child.isAnnotationPresent(SkipJVM.class)
-                && !child.getDeclaringClass().isAnnotationPresent(SkipJVM.class)) {
+                && !testClass.isAnnotationPresent(SkipJVM.class)) {
             ran = true;
             success = runInJvm(child, notifier, expectedExceptions);
         }
 
-        Description description = describeChild(child);
         if (success && outputDir != null) {
             int[] configurationIndex = new int[] { 0 };
             List<Consumer<Boolean>> onSuccess = new ArrayList<>();
@@ -302,42 +338,136 @@ public class TeaVMTestRunner extends Runner implements Filterable {
         }
     }
 
+    private String[] getExpectedExceptions(MethodHolder method) {
+        AnnotationHolder annot = method.getAnnotations().get(JUNIT4_TEST);
+        if (annot == null) {
+            return new String[0];
+        }
+        AnnotationValue expected = annot.getValue("expected");
+        if (expected == null) {
+            return new String[0];
+        }
+
+        ValueType result = expected.getJavaClass();
+        return new String[] { ((ValueType.Object) result).getClassName() };
+    }
+
     private boolean runInJvm(Method child, RunNotifier notifier, Set<Class<?>> expectedExceptions) {
+        Description description = describeChild(child);
+        Runner runner;
         Object instance;
         try {
             instance = testClass.newInstance();
         } catch (InstantiationException | IllegalAccessException e) {
-            notifier.fireTestFailure(new Failure(describeChild(child), e));
+            notifier.fireTestFailure(new Failure(description, e));
             return false;
         }
+        if (!TestCase.class.isAssignableFrom(testClass)) {
+            runner = new JUnit4Runner(instance, child);
+        } else {
+            runner = new JUnit3Runner(instance);
+            ((TestCase) instance).setName(child.getName());
+        }
 
-        boolean expectedCaught = false;
-        try {
-            child.invoke(instance);
-        } catch (IllegalAccessException e) {
-            notifier.fireTestFailure(new Failure(describeChild(child), e));
-            return false;
-        } catch (InvocationTargetException e) {
-            boolean wasExpected = false;
-            for (Class<?> expected : expectedExceptions) {
-                if (expected.isInstance(e.getTargetException())) {
-                    expectedCaught = true;
-                    wasExpected = true;
+        List<Class<?>> classes = new ArrayList<>();
+        Class<?> cls = instance.getClass();
+        while (cls != null) {
+            classes.add(cls);
+            cls = cls.getSuperclass();
+        }
+        Collections.reverse(classes);
+        for (Class<?> c : classes) {
+            for (Method method : c.getMethods()) {
+                if (method.isAnnotationPresent(Before.class)) {
+                    try {
+                        method.invoke(instance);
+                    } catch (InvocationTargetException e) {
+                        notifier.fireTestFailure(new Failure(description, e.getTargetException()));
+                    } catch (IllegalAccessException e) {
+                        notifier.fireTestFailure(new Failure(description, e));
+                    }
                 }
             }
-            if (!wasExpected) {
-                notifier.fireTestFailure(new Failure(describeChild(child), e.getTargetException()));
+        }
+
+        try {
+            boolean expectedCaught = false;
+            try {
+                runner.run();
+            } catch (Throwable e) {
+                boolean wasExpected = false;
+                for (Class<?> expected : expectedExceptions) {
+                    if (expected.isInstance(e)) {
+                        expectedCaught = true;
+                        wasExpected = true;
+                    }
+                }
+                if (!wasExpected) {
+                    notifier.fireTestFailure(new Failure(description, e));
+                    return false;
+                }
                 return false;
             }
+
+            if (!expectedCaught && !expectedExceptions.isEmpty()) {
+                notifier.fireTestAssumptionFailed(new Failure(description,
+                        new AssertionError("Expected exception was not thrown")));
+                return false;
+            }
+
+            return true;
+        } finally {
+            Collections.reverse(classes);
+            for (Class<?> c : classes) {
+                for (Method method : c.getMethods()) {
+                    if (method.isAnnotationPresent(After.class)) {
+                        try {
+                            method.invoke(instance);
+                        } catch (InvocationTargetException e) {
+                            notifier.fireTestFailure(new Failure(description, e.getTargetException()));
+                        } catch (IllegalAccessException e) {
+                            notifier.fireTestFailure(new Failure(description, e));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    interface Runner {
+        void run() throws Throwable;
+    }
+
+    class JUnit4Runner implements Runner {
+        Object instance;
+        Method child;
+
+        JUnit4Runner(Object instance, Method child) {
+            this.instance = instance;
+            this.child = child;
         }
 
-        if (!expectedCaught && !expectedExceptions.isEmpty()) {
-            notifier.fireTestAssumptionFailed(new Failure(describeChild(child),
-                    new AssertionError("Expected exception was not thrown")));
-            return false;
+        @Override
+        public void run() throws Throwable {
+            try {
+                child.invoke(instance);
+            } catch (InvocationTargetException e) {
+                throw e.getTargetException();
+            }
+        }
+    }
+
+    class JUnit3Runner implements Runner {
+        Object instance;
+
+        JUnit3Runner(Object instance) {
+            this.instance = instance;
         }
 
-        return true;
+        @Override
+        public void run() throws Throwable {
+            ((TestCase) instance).runBare();
+        }
     }
 
     private TestRun compile(Method child, RunNotifier notifier, RunKind kind,
@@ -416,7 +546,7 @@ public class TeaVMTestRunner extends Runner implements Filterable {
 
     private File getOutputPath(Method method) {
         File path = outputDir;
-        path = new File(path, method.getDeclaringClass().getName().replace('.', '/'));
+        path = new File(path, testClass.getName().replace('.', '/'));
         path = new File(path, method.getName());
         path.mkdirs();
         return path;
@@ -430,72 +560,146 @@ public class TeaVMTestRunner extends Runner implements Filterable {
 
     private CompileResult compileToJs(Method method, TeaVMTestConfiguration<JavaScriptTarget> configuration,
             File path) {
-        return compileTest(method, configuration, JavaScriptTarget::new, vm -> {
-            vm.entryPoint(TestEntryPoint.class.getName());
-        }, path, ".js");
+        boolean decodeStack = Boolean.parseBoolean(System.getProperty(JS_DECODE_STACK, "true"));
+        DebugInformationBuilder debugEmitter = new DebugInformationBuilder(new ReferenceCache());
+        Supplier<JavaScriptTarget> targetSupplier = () -> {
+            JavaScriptTarget target = new JavaScriptTarget();
+            if (decodeStack) {
+                target.setDebugEmitter(debugEmitter);
+                target.setStackTraceIncluded(true);
+            }
+            return target;
+        };
+        CompilePostProcessor postBuild = null;
+        if (decodeStack) {
+            postBuild = (vm, file) -> {
+                DebugInformation debugInfo = debugEmitter.getDebugInformation();
+                File sourceMapsFile = new File(file.getPath() + ".map");
+                File debugFile = new File(file.getPath() + ".teavmdbg");
+                try {
+                    try (Writer writer = new OutputStreamWriter(new FileOutputStream(file, true), UTF_8)) {
+                        writer.write("\n//# sourceMappingURL=");
+                        writer.write(sourceMapsFile.getName());
+                    }
+
+                    try (Writer sourceMapsOut = new OutputStreamWriter(new FileOutputStream(sourceMapsFile), UTF_8)) {
+                        debugInfo.writeAsSourceMaps(sourceMapsOut, "", file.getPath());
+                    }
+
+                    try (OutputStream out = new FileOutputStream(debugFile)) {
+                        debugInfo.write(out);
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            };
+        }
+        return compileTest(method, configuration, targetSupplier, TestEntryPoint.class.getName(), path, ".js",
+                postBuild, false);
     }
 
     private CompileResult compileToC(Method method, TeaVMTestConfiguration<CTarget> configuration,
             File path) {
-        return compileTest(method, configuration, CTarget::new, vm -> {
-            vm.entryPoint(TestNativeEntryPoint.class.getName());
-        }, path, ".c");
+        CompilePostProcessor postBuild = (vm, file) -> {
+            try {
+                resourceToFile("teavm-CMakeLists.txt", new File(file.getParent(), "CMakeLists.txt"));
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        };
+        return compileTest(method, configuration, this::createCTarget, TestNativeEntryPoint.class.getName(), path, ".c",
+                postBuild, true);
+    }
+
+    private CTarget createCTarget() {
+        CTarget cTarget = new CTarget();
+        cTarget.setLineNumbersGenerated(Boolean.parseBoolean(System.getProperty(C_LINE_NUMBERS, "false")));
+        return cTarget;
     }
 
     private CompileResult compileToWasm(Method method, TeaVMTestConfiguration<WasmTarget> configuration,
             File path) {
-        return compileTest(method, configuration, WasmTarget::new, vm -> {
-            vm.entryPoint(TestNativeEntryPoint.class.getName());
-        }, path, ".wasm");
+        return compileTest(method, configuration, WasmTarget::new, TestNativeEntryPoint.class.getName(), path,
+                ".wasm", null, false);
     }
 
     private <T extends TeaVMTarget> CompileResult compileTest(Method method, TeaVMTestConfiguration<T> configuration,
-            Supplier<T> targetSupplier, Consumer<TeaVM> preBuild, File path, String extension) {
+            Supplier<T> targetSupplier, String entryPoint, File path, String extension,
+            CompilePostProcessor postBuild, boolean separateDir) {
         CompileResult result = new CompileResult();
 
         StringBuilder simpleName = new StringBuilder();
         simpleName.append("test");
         String suffix = configuration.getSuffix();
         if (!suffix.isEmpty()) {
-            simpleName.append('-').append(suffix);
+            if (!separateDir) {
+                simpleName.append('-').append(suffix);
+            }
         }
-        simpleName.append(extension);
-        File outputFile = new File(path, simpleName.toString());
+        File outputFile;
+        if (separateDir) {
+            outputFile = new File(new File(path, simpleName.toString()), "test" + extension);
+        } else {
+            simpleName.append(extension);
+            outputFile = new File(path, simpleName.toString());
+        }
         result.file = outputFile;
 
         ClassLoader classLoader = TeaVMTestRunner.class.getClassLoader();
-        ClassHolderSource classSource = getClassSource(classLoader);
 
+        ClassHolder classHolder = classSource.get(method.getDeclaringClass().getName());
         MethodHolder methodHolder = classHolder.getMethod(getDescriptor(method));
-        Class<?> runnerType = testAdapter.getRunner(methodHolder);
 
         T target = targetSupplier.get();
         configuration.apply(target);
 
+        DependencyAnalyzerFactory dependencyAnalyzerFactory = PreciseDependencyAnalyzer::new;
+        boolean fastAnalysis = Boolean.parseBoolean(System.getProperty(FAST_ANALYSIS));
+        if (fastAnalysis) {
+            dependencyAnalyzerFactory = FastDependencyAnalyzer::new;
+        }
+
         TeaVM vm = new TeaVMBuilder(target)
                 .setClassLoader(classLoader)
                 .setClassSource(classSource)
+                .setReferenceCache(referenceCache)
+                .setDependencyAnalyzerFactory(dependencyAnalyzerFactory)
                 .build();
 
         Properties properties = new Properties();
         applyProperties(method.getDeclaringClass(), properties);
         vm.setProperties(properties);
 
-        vm.setIncremental(false);
         configuration.apply(vm);
         vm.installPlugins();
 
         new TestExceptionPlugin().install(vm);
-        new TestEntryPointTransformer(runnerType.getName(), methodHolder.getReference()).install(vm);
+        new TestEntryPointTransformer(methodHolder.getReference(), testClass.getName()).install(vm);
 
-        preBuild.accept(vm);
+        vm.entryPoint(entryPoint);
+
+        if (fastAnalysis) {
+            vm.setOptimizationLevel(TeaVMOptimizationLevel.SIMPLE);
+            vm.addVirtualMethods(m -> true);
+        }
+        if (!outputFile.getParentFile().exists()) {
+            outputFile.getParentFile().mkdirs();
+        }
         vm.build(new DirectoryBuildTarget(outputFile.getParentFile()), outputFile.getName());
         if (!vm.getProblemProvider().getProblems().isEmpty()) {
             result.success = false;
             result.errorMessage = buildErrorMessage(vm);
+        } else {
+            if (postBuild != null) {
+                postBuild.process(vm, outputFile);
+            }
         }
 
         return result;
+    }
+
+    interface CompilePostProcessor {
+        void process(TeaVM vm, File targetFile);
     }
 
     private List<TeaVMTestConfiguration<JavaScriptTarget>> getJavaScriptConfigurations() {
@@ -574,9 +778,9 @@ public class TeaVMTestRunner extends Runner implements Filterable {
         }
     }
 
-    private static ClassHolderSource getClassSource(ClassLoader classLoader) {
+    private ClassHolderSource getClassSource(ClassLoader classLoader) {
         return classSources.computeIfAbsent(classLoader, cl -> new PreOptimizingClassHolderSource(
-                new ClasspathClassHolderSource(classLoader)));
+                new ClasspathClassHolderSource(classLoader, referenceCache)));
     }
 
     @Override

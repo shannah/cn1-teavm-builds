@@ -35,6 +35,7 @@ import org.teavm.dependency.FieldDependencyInfo;
 import org.teavm.dependency.MethodDependencyInfo;
 import org.teavm.dependency.ValueDependencyInfo;
 import org.teavm.model.BasicBlock;
+import org.teavm.model.ClassHierarchy;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.Incoming;
 import org.teavm.model.Instruction;
@@ -66,6 +67,7 @@ import org.teavm.model.instructions.UnwrapArrayInstruction;
 
 public class ClassInference {
     private DependencyInfo dependencyInfo;
+    private ClassHierarchy hierarchy;
     private Graph assignmentGraph;
     private Graph cloneGraph;
     private Graph arrayGraph;
@@ -88,8 +90,9 @@ public class ClassInference {
 
     private static final int MAX_DEGREE = 3;
 
-    public ClassInference(DependencyInfo dependencyInfo) {
+    public ClassInference(DependencyInfo dependencyInfo, ClassHierarchy hierarchy) {
         this.dependencyInfo = dependencyInfo;
+        this.hierarchy = hierarchy;
     }
 
     public void infer(Program program, MethodReference methodReference) {
@@ -402,8 +405,6 @@ public class ClassInference {
     }
 
     private void propagateAlongCasts() {
-        ClassReaderSource classSource = dependencyInfo.getClassSource();
-
         for (ValueCast cast : casts) {
             int fromNode = nodeMapping[packNodeAndDegree(cast.fromVariable, 0)];
             if (!formerNodeChanged[fromNode] && !nodeChanged[fromNode]) {
@@ -429,7 +430,7 @@ public class ClassInference {
                     type = ValueType.object(className);
                 }
 
-                if (classSource.isSuperType(cast.targetType, type).orElse(false)) {
+                if (hierarchy.isSuperType(cast.targetType, type, false)) {
                     changed = true;
                     nodeChanged[toNode] = true;
                     targetTypes.add(cursor.value);
@@ -499,11 +500,9 @@ public class ClassInference {
     }
 
     private void propagateException(String thrownTypeName, BasicBlock block) {
-        ClassReaderSource classSource = dependencyInfo.getClassSource();
-
         for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
             String expectedType = tryCatch.getExceptionType();
-            if (expectedType == null || classSource.isSuperType(expectedType, thrownTypeName).orElse(false)) {
+            if (expectedType == null || hierarchy.isSuperType(expectedType, thrownTypeName, false)) {
                 if (tryCatch.getHandler().getExceptionVariable() == null) {
                     break;
                 }

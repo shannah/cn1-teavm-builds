@@ -44,11 +44,14 @@ import org.teavm.backend.wasm.generators.WasmMethodGeneratorContext;
 import org.teavm.backend.wasm.intrinsics.AddressIntrinsic;
 import org.teavm.backend.wasm.intrinsics.AllocatorIntrinsic;
 import org.teavm.backend.wasm.intrinsics.ClassIntrinsic;
+import org.teavm.backend.wasm.intrinsics.ConsoleIntrinsic;
 import org.teavm.backend.wasm.intrinsics.DoubleIntrinsic;
 import org.teavm.backend.wasm.intrinsics.ExceptionHandlingIntrinsic;
 import org.teavm.backend.wasm.intrinsics.FloatIntrinsic;
 import org.teavm.backend.wasm.intrinsics.FunctionIntrinsic;
 import org.teavm.backend.wasm.intrinsics.GCIntrinsic;
+import org.teavm.backend.wasm.intrinsics.IntegerIntrinsic;
+import org.teavm.backend.wasm.intrinsics.LongIntrinsic;
 import org.teavm.backend.wasm.intrinsics.MutatorIntrinsic;
 import org.teavm.backend.wasm.intrinsics.ObjectIntrinsic;
 import org.teavm.backend.wasm.intrinsics.PlatformClassIntrinsic;
@@ -97,11 +100,12 @@ import org.teavm.diagnostics.Diagnostics;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
 import org.teavm.interop.Import;
-import org.teavm.interop.PlatformMarkers;
+import org.teavm.interop.Platforms;
 import org.teavm.interop.StaticInit;
 import org.teavm.model.AnnotationHolder;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.CallLocation;
+import org.teavm.model.ClassHierarchy;
 import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassHolderTransformer;
 import org.teavm.model.ClassReader;
@@ -119,15 +123,16 @@ import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
 import org.teavm.model.ValueType;
 import org.teavm.model.classes.TagRegistry;
+import org.teavm.model.classes.VirtualTableBuilder;
 import org.teavm.model.classes.VirtualTableProvider;
 import org.teavm.model.instructions.CloneArrayInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
+import org.teavm.model.lowlevel.CallSiteDescriptor;
 import org.teavm.model.lowlevel.Characteristics;
 import org.teavm.model.lowlevel.ClassInitializerEliminator;
 import org.teavm.model.lowlevel.ClassInitializerTransformer;
 import org.teavm.model.lowlevel.ShadowStackTransformer;
-import org.teavm.model.transformation.ClassInitializerInsertionTransformer;
 import org.teavm.model.transformation.ClassPatch;
 import org.teavm.runtime.Allocator;
 import org.teavm.runtime.ExceptionHandling;
@@ -146,7 +151,6 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
     private boolean wastEmitted;
     private boolean cEmitted;
     private boolean cLineNumbersEmitted = Boolean.parseBoolean(System.getProperty("wasm.c.lineNumbers", "false"));
-    private ClassInitializerInsertionTransformer clinitInsertionTransformer;
     private ClassInitializerEliminator classInitializerEliminator;
     private ClassInitializerTransformer classInitializerTransformer;
     private ShadowStackTransformer shadowStackTransformer;
@@ -161,8 +165,7 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
                 controller.getUnprocessedClassSource());
         classInitializerEliminator = new ClassInitializerEliminator(controller.getUnprocessedClassSource());
         classInitializerTransformer = new ClassInitializerTransformer();
-        shadowStackTransformer = new ShadowStackTransformer(managedMethodRepository);
-        clinitInsertionTransformer = new ClassInitializerInsertionTransformer(controller.getUnprocessedClassSource());
+        shadowStackTransformer = new ShadowStackTransformer(managedMethodRepository, true);
     }
 
     @Override
@@ -239,72 +242,76 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
     public void contributeDependencies(DependencyAnalyzer dependencyAnalyzer) {
         for (Class<?> type : Arrays.asList(int.class, long.class, float.class, double.class)) {
             MethodReference method = new MethodReference(WasmRuntime.class, "compare", type, type, int.class);
-            dependencyAnalyzer.linkMethod(method, null).use();
+            dependencyAnalyzer.linkMethod(method).use();
         }
         for (Class<?> type : Arrays.asList(float.class, double.class)) {
             MethodReference method = new MethodReference(WasmRuntime.class, "remainder", type, type, type);
-            dependencyAnalyzer.linkMethod(method, null).use();
+            dependencyAnalyzer.linkMethod(method).use();
         }
 
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "align", Address.class, int.class,
-                Address.class), null).use();
+                Address.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "fillZero", Address.class, int.class,
-                void.class), null).use();
+                void.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "moveMemoryBlock", Address.class,
-                Address.class, int.class, void.class), null).use();
+                Address.class, int.class, void.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "allocStack",
-                int.class, Address.class), null).use();
-        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackTop", Address.class),
-                null) .use();
+                int.class, Address.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackTop", Address.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getNextStackFrame", Address.class,
-                Address.class), null).use();
+                Address.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackRootCount", Address.class,
-                int.class), null).use();
+                int.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getStackRootPointer", Address.class,
-                Address.class), null).use();
+                Address.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "setExceptionHandlerId", Address.class,
-                int.class, void.class), null).use();
+                int.class, void.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "getCallSiteId", Address.class,
-                int.class), null).use();
+                int.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "resourceMapKeys", Address.class,
-                String[].class), null).use();
+                String[].class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "lookupResource", Address.class,
-                String.class, Address.class), null).use();
+                String.class, Address.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "printString",
+                String.class, void.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "printInt",
+                int.class, void.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(WasmRuntime.class, "printOutOfMemory",
+                void.class)).use();
 
         dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "allocate",
-                RuntimeClass.class, Address.class), null).use();
+                RuntimeClass.class, Address.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "allocateArray",
-                RuntimeClass.class, int.class, Address.class), null).use();
+                RuntimeClass.class, int.class, Address.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "allocateMultiArray",
-                RuntimeClass.class, Address.class, int.class, RuntimeArray.class), null).use();
+                RuntimeClass.class, Address.class, int.class, RuntimeArray.class)).use();
 
-        dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "<clinit>", void.class), null).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(Allocator.class, "<clinit>", void.class)).use();
 
         dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class, "throwException",
-                Throwable.class, void.class), null).use();
+                Throwable.class, void.class)).use();
 
         dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class, "catchException",
-                Throwable.class), null).use();
+                Throwable.class)).use();
 
-        dependencyAnalyzer.linkField(new FieldReference("java.lang.Object", "monitor"), null);
+        dependencyAnalyzer.linkField(new FieldReference("java.lang.Object", "monitor"));
 
-        ClassDependency runtimeClassDep = dependencyAnalyzer.linkClass(RuntimeClass.class.getName(), null);
-        ClassDependency runtimeObjectDep = dependencyAnalyzer.linkClass(RuntimeObject.class.getName(), null);
-        ClassDependency runtimeArrayDep = dependencyAnalyzer.linkClass(RuntimeArray.class.getName(), null);
+        ClassDependency runtimeClassDep = dependencyAnalyzer.linkClass(RuntimeClass.class.getName());
+        ClassDependency runtimeObjectDep = dependencyAnalyzer.linkClass(RuntimeObject.class.getName());
+        ClassDependency runtimeArrayDep = dependencyAnalyzer.linkClass(RuntimeArray.class.getName());
         for (ClassDependency classDep : Arrays.asList(runtimeClassDep, runtimeObjectDep, runtimeArrayDep)) {
             for (FieldReader field : classDep.getClassReader().getFields()) {
-                dependencyAnalyzer.linkField(field.getReference(), null);
+                dependencyAnalyzer.linkField(field.getReference());
             }
         }
     }
 
     @Override
-    public void beforeOptimizations(Program program, MethodReader method, ListableClassReaderSource classSource) {
+    public void beforeOptimizations(Program program, MethodReader method) {
     }
 
     @Override
-    public void afterOptimizations(Program program, MethodReader method, ListableClassReaderSource classes) {
-        clinitInsertionTransformer.apply(method, program);
+    public void afterOptimizations(Program program, MethodReader method) {
         classInitializerEliminator.apply(program);
         classInitializerTransformer.transform(program);
         shadowStackTransformer.apply(program, method);
@@ -317,14 +324,14 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
         WasmFunction initFunction = new WasmFunction("__start__");
 
         VirtualTableProvider vtableProvider = createVirtualTableProvider(classes);
-        TagRegistry tagRegistry = new TagRegistry(classes);
+        ClassHierarchy hierarchy = new ClassHierarchy(classes);
+        TagRegistry tagRegistry = new TagRegistry(classes, hierarchy);
         BinaryWriter binaryWriter = new BinaryWriter(256);
         NameProvider names = new NameProvider(controller.getUnprocessedClassSource());
         WasmClassGenerator classGenerator = new WasmClassGenerator(classes, controller.getUnprocessedClassSource(),
                 vtableProvider, tagRegistry, binaryWriter, names);
 
-        Decompiler decompiler = new Decompiler(classes, controller.getClassLoader(), new HashSet<>(),
-                new HashSet<>(), false, true);
+        Decompiler decompiler = new Decompiler(classes, new HashSet<>(), false);
         WasmStringPool stringPool = classGenerator.getStringPool();
         WasmGenerationContext context = new WasmGenerationContext(classes, module, controller.getDiagnostics(),
                 vtableProvider, tagRegistry, stringPool, names);
@@ -343,7 +350,10 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
         context.addIntrinsic(new RuntimeClassIntrinsic());
         context.addIntrinsic(new FloatIntrinsic());
         context.addIntrinsic(new DoubleIntrinsic());
+        context.addIntrinsic(new LongIntrinsic());
+        context.addIntrinsic(new IntegerIntrinsic());
         context.addIntrinsic(new ObjectIntrinsic());
+        context.addIntrinsic(new ConsoleIntrinsic());
         context.addGenerator(new ArrayGenerator());
 
         IntrinsicFactoryContext intrinsicFactoryContext = new IntrinsicFactoryContext();
@@ -366,7 +376,7 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
         int pages = (minHeapSize + pageSize - 1) / pageSize;
         module.setMemorySize(pages);
         generateMethods(classes, context, generator, classGenerator, binaryWriter, module);
-        exceptionHandlingIntrinsic.postProcess(shadowStackTransformer.getCallSites());
+        exceptionHandlingIntrinsic.postProcess(CallSiteDescriptor.extract(classes, classes.getClassNames()));
         generateIsSupertypeFunctions(tagRegistry, module, classGenerator);
         classGenerator.postProcess();
         mutatorIntrinsic.setStaticGcRootsAddress(classGenerator.getStaticGcRootsAddress());
@@ -508,7 +518,8 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
         for (String className : classes.getClassNames()) {
             ClassHolder cls = classes.get(className);
             for (MethodHolder method : cls.getMethods()) {
-                if (context.getIntrinsic(method.getReference()) != null) {
+                if (method.hasModifier(ElementModifier.ABSTRACT)
+                        || context.getIntrinsic(method.getReference()) != null) {
                     continue;
                 }
                 module.add(generator.generateDefinition(method.getReference()));
@@ -767,6 +778,13 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
     }
 
     private VirtualTableProvider createVirtualTableProvider(ListableClassHolderSource classes) {
+        VirtualTableBuilder builder = new VirtualTableBuilder(classes);
+        builder.setMethodsUsedAtCallSites(getMethodsUsedOnCallSites(classes));
+        builder.setMethodCalledVirtually(controller::isVirtual);
+        return builder.build();
+    }
+
+    private Set<MethodReference> getMethodsUsedOnCallSites(ListableClassHolderSource classes) {
         Set<MethodReference> virtualMethods = new HashSet<>();
 
         for (String className : classes.getClassNames()) {
@@ -792,12 +810,12 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
             }
         }
 
-        return new VirtualTableProvider(classes, virtualMethods);
+        return virtualMethods;
     }
 
     @Override
     public String[] getPlatformTags() {
-        return new String[] { PlatformMarkers.WEBASSEMBLY, PlatformMarkers.LOW_LEVEL };
+        return new String[] { Platforms.WEBASSEMBLY, Platforms.LOW_LEVEL };
     }
 
     @Override

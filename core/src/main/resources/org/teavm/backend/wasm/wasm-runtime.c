@@ -8,7 +8,7 @@
 #include <wctype.h>
 #include <time.h>
 
-static inline float TeaVM_getNaN() {
+static inline float teavm_getNaN() {
     return NAN;
 }
 
@@ -40,4 +40,13 @@ inline static int32_t reinterpret_float32(double v) {
 inline static float reinterpret_int32(int32_t v) {
     reinterpret_union_32.i = v;
     return reinterpret_union_32.f;
+}
+
+static void logOutOfMemory() {
+    abort();
+}
+
+static void logString(int32_t v) {
+}
+static void logInt(int32_t v) {
 }

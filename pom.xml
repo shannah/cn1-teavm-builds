@@ -69,22 +69,21 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <sonatypeOssDistMgmtSnapshotsUrl>https://oss.sonatype.org/content/repositories/snapshots/</sonatypeOssDistMgmtSnapshotsUrl>
     <html4j.version>1.5</html4j.version>
-    <jetty.version>9.2.1.v20140609</jetty.version>
+    <jetty.version>9.4.14.v20181114</jetty.version>
     <slf4j.version>1.7.7</slf4j.version>
+
 
     <s3.bucket.name>cn1-maven</s3.bucket.name>
 
-    <selenium.version>2.47.2</selenium.version>
     <jackson.version>2.6.2</jackson.version>
     <idea.version>2017.3.5</idea.version>
-    <asm.version>7.0</asm.version>
+    <asm.version>7.1</asm.version>
     <java.version>1.8</java.version>
-    <rhino.version>1.7.7</rhino.version>
+    <rhino.version>1.7.11</rhino.version>
 
     <teavm.test.incremental>false</teavm.test.incremental>
     <teavm.test.threads>1</teavm.test.threads>
 
-    <teavm.test.selenium />
 
     <teavm.test.skip>true</teavm.test.skip>
 
@@ -100,10 +99,12 @@
     <module>jso/impl</module>
     <module>html4j</module>
     <module>platform</module>
+    <module>tools/c-incremental</module>
     <module>tools/core</module>
     <module>tools/maven</module>
     <module>tools/chrome-rdp</module>
     <module>tools/junit</module>
+    <module>tools/devserver</module>
     <module>tests</module>
     <module>extras-slf4j</module>
     <module>metaprogramming/impl</module>
@@ -188,19 +189,19 @@
         <version>${jetty.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-client</artifactId>
+        <version>${jetty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse.jetty.websocket</groupId>
+        <artifactId>websocket-client</artifactId>
+        <version>${jetty.version}</version>
+      </dependency>
+      <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
         <version>${slf4j.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.seleniumhq.selenium</groupId>
-        <artifactId>selenium-java</artifactId>
-        <version>${selenium.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.seleniumhq.selenium</groupId>
-        <artifactId>selenium-remote-driver</artifactId>
-        <version>${selenium.version}</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
@@ -323,14 +324,14 @@
         </plugin>
         -->
         <plugin>
-          <groupId>org.apache.felix</groupId>
-          <artifactId>maven-bundle-plugin</artifactId>
-          <version>4.1.0</version>
-        </plugin>
-        <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
           <version>3.0.2</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.1.1</version>
         </plugin>
       </plugins>
     </pluginManagement>

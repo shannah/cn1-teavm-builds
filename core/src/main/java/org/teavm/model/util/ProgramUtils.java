@@ -19,8 +19,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import org.teavm.ast.ControlFlowEntry;
 import org.teavm.common.Graph;
 import org.teavm.common.GraphBuilder;
 import org.teavm.model.BasicBlock;
@@ -45,6 +45,9 @@ import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.instructions.RaiseInstruction;
 
 public final class ProgramUtils {
+    private static final MethodReference NPE_INIT_METHOD = new MethodReference(
+            NullPointerException.class, "<init>", void.class);
+
     private ProgramUtils() {
     }
 
@@ -69,7 +72,7 @@ public final class ProgramUtils {
         return graphBuilder.build();
     }
 
-    public static Map<TextLocation, TextLocation[]> getLocationCFG(Program program) {
+    public static ControlFlowEntry[] getLocationCFG(Program program) {
         return new LocationGraphBuilder().build(program);
     }
 
@@ -88,6 +91,7 @@ public final class ProgramUtils {
             BasicBlock blockCopy = copy.basicBlockAt(i);
             copyBasicBlock(block, blockCopy);
         }
+        ModelUtils.copyAnnotations(program.getAnnotations(), copy.getAnnotations());
         return copy;
     }
 
@@ -219,7 +223,7 @@ public final class ProgramUtils {
         InvokeInstruction initNPE = new InvokeInstruction();
         initNPE.setType(InvocationType.SPECIAL);
         initNPE.setInstance(newNPE.getReceiver());
-        initNPE.setMethod(new MethodReference(NullPointerException.class, "<init>", void.class));
+        initNPE.setMethod(NPE_INIT_METHOD);
         initNPE.setLocation(location);
 
         RaiseInstruction raise = new RaiseInstruction();

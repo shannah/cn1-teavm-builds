@@ -20,24 +20,7 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.file.FileSystems;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardWatchEventKinds;
-import java.nio.file.WatchEvent;
-import java.nio.file.WatchKey;
-import java.nio.file.WatchService;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.HelpFormatter;
@@ -46,9 +29,12 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
 import org.teavm.backend.wasm.render.WasmBinaryVersion;
+import org.teavm.tooling.ConsoleTeaVMToolLog;
+import org.teavm.tooling.TeaVMProblemRenderer;
 import org.teavm.tooling.TeaVMTargetType;
 import org.teavm.tooling.TeaVMTool;
 import org.teavm.tooling.TeaVMToolException;
+import org.teavm.tooling.util.FileSystemWatcher;
 import org.teavm.vm.TeaVMOptimizationLevel;
 import org.teavm.vm.TeaVMPhase;
 import org.teavm.vm.TeaVMProgressFeedback;
@@ -57,7 +43,7 @@ import org.teavm.vm.TeaVMProgressListener;
 public final class TeaVMRunner {
     private static Options options = new Options();
     private TeaVMTool tool = new TeaVMTool();
-    private AccumulatingTeaVMToolLog log = new AccumulatingTeaVMToolLog(new ConsoleTeaVMToolLog());
+    private AccumulatingTeaVMToolLog log = new AccumulatingTeaVMToolLog(new ConsoleTeaVMToolLog(false));
     private CommandLine commandLine;
     private long startTime;
     private long phaseStartTime;
@@ -96,12 +82,6 @@ public final class TeaVMRunner {
                 .hasArg()
                 .withArgName("number")
                 .create("O"));
-        options.addOption(OptionBuilder
-                .withArgName("separate|merge|none")
-                .hasArg()
-                .withDescription("how to attach runtime. Possible values are: separate|merge|none")
-                .withLongOpt("runtime")
-                .create("r"));
         options.addOption(OptionBuilder
                 .withDescription("Generate debug information")
                 .withLongOpt("debug")
@@ -143,10 +123,27 @@ public final class TeaVMRunner {
                 .withDescription("WebAssembly binary version (currently, only 1 is supported)")
                 .create());
         options.addOption(OptionBuilder
+                .withLongOpt("entry-point")
+                .withArgName("name")
+                .hasArg()
+                .withDescription("Entry point name in target language (main by default)")
+                .create("e"));
+        options.addOption(OptionBuilder
                 .withLongOpt("min-heap")
                 .withArgName("size")
                 .hasArg()
-                .withDescription("Minimum heap size in bytes (for C and WebAssembly)")
+                .withDescription("Minimum heap size in megabytes (for C and WebAssembly)")
+                .create());
+        options.addOption(OptionBuilder
+                .withLongOpt("max-toplevel-names")
+                .withArgName("number")
+                .hasArg()
+                .withDescription("Maximum number of names kept in top-level scope ("
+                        + "other will be put in a separate object. 10000 by default.")
+                .create());
+        options.addOption(OptionBuilder
+                .withLongOpt("no-longjmp")
+                .withDescription("Don't use setjmp/longjmp functions to emulate exceptions (C target)")
                 .create());
     }
 
@@ -184,7 +181,12 @@ public final class TeaVMRunner {
         parseIncrementalOptions();
         parseJavaScriptOptions();
         parseWasmOptions();
+        parseCOptions();
         parseHeap();
+
+        if (commandLine.hasOption("e")) {
+            tool.setEntryPointName(commandLine.getOptionValue("e"));
+        }
 
         interactive = commandLine.hasOption('w');
 
@@ -225,10 +227,15 @@ public final class TeaVMRunner {
     }
 
     private void parseJavaScriptOptions() {
-        if (commandLine.hasOption("m")) {
-            tool.setMinifying(true);
-        } else {
-            tool.setMinifying(false);
+        tool.setMinifying(commandLine.hasOption("m"));
+
+        if (commandLine.hasOption("max-toplevel-names")) {
+            try {
+                tool.setMaxTopLevelNames(Integer.parseInt(commandLine.getOptionValue("max-toplevel-names")));
+            } catch (NumberFormatException e) {
+                System.err.println("'--max-toplevel-names' must be integer number");
+                printUsage();
+            }
         }
     }
 
@@ -311,6 +318,12 @@ public final class TeaVMRunner {
         }
     }
 
+    private void parseCOptions() {
+        if (commandLine.hasOption("no-longjmp")) {
+            tool.setLongjmpSupported(false);
+        }
+    }
+
     private void parseHeap() {
         if (commandLine.hasOption("min-heap")) {
             int size;
@@ -321,7 +334,7 @@ public final class TeaVMRunner {
                 printUsage();
                 return;
             }
-            tool.setMinHeapSize(size);
+            tool.setMinHeapSize(size * 1024 * 1024);
         }
     }
 
@@ -339,30 +352,28 @@ public final class TeaVMRunner {
     }
 
     private void buildInteractive() {
-        InteractiveWatcher watcher = new InteractiveWatcher();
+        FileSystemWatcher watcher;
+        try {
+            watcher = new FileSystemWatcher(classPath);
+        } catch (IOException e) {
+            System.err.println("Error listening file system events");
+            e.printStackTrace();
+            System.exit(2);
+            return;
+        }
 
         while (true) {
-            ProgressListenerImpl progressListener = new ProgressListenerImpl();
-            Thread thread = null;
+            ProgressListenerImpl progressListener = new ProgressListenerImpl(watcher);
             try {
-                watcher.progressListener = progressListener;
-                thread = new Thread(watcher);
-                thread.start();
-                if (progressListener.cancelRequested.get()) {
-                    continue;
-                }
                 build(progressListener);
             } catch (Exception e) {
                 e.printStackTrace(System.err);
-            } finally {
-                if (!progressListener.cancelRequested.get()) {
-                    thread.interrupt();
-                }
             }
 
             try {
                 System.out.println("Waiting for changes...");
-                watcher.waitForChange();
+                watcher.waitForChange(750);
+                watcher.grabChangedFiles();
                 System.out.println();
                 System.out.println("Changes detected. Recompiling...");
             } catch (InterruptedException | IOException e) {
@@ -371,154 +382,9 @@ public final class TeaVMRunner {
         }
     }
 
-    class InteractiveWatcher implements Runnable {
-        volatile ProgressListenerImpl progressListener = new ProgressListenerImpl();
-        private WatchService watchService;
-        private Map<WatchKey, Path> keysToPath = new HashMap<>();
-        private Map<Path, WatchKey> pathsToKey = new HashMap<>();
-
-        InteractiveWatcher() {
-            try {
-                watchService = FileSystems.getDefault().newWatchService();
-                for (String entry : classPath) {
-                    Path path = Paths.get(entry);
-                    File file = path.toFile();
-                    if (file.exists()) {
-                        if (!file.isDirectory()) {
-                            registerSingle(path.getParent());
-                        } else {
-                            register(path);
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                System.err.println("Error setting up file watcher");
-                e.printStackTrace(System.err);
-                System.exit(2);
-            }
-        }
-
-        private void register(Path path) throws IOException {
-            Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-                        throws IOException {
-                    registerSingle(dir);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        }
-
-        private void registerSingle(Path path) throws IOException {
-            WatchKey key = path.register(watchService, StandardWatchEventKinds.ENTRY_CREATE,
-                    StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY);
-            keysToPath.put(key, path);
-            pathsToKey.put(path, key);
-        }
-
-        @Override
-        public void run() {
-            Thread thread = new Thread(() -> {
-                try {
-                    waitForChange();
-                    if (Thread.currentThread().isInterrupted()) {
-                        progressListener.cancelRequested.set(true);
-                        System.out.println("Classpath changed during compilation. Cancelling...");
-                    }
-                } catch (InterruptedException | IOException e) {
-                    // do nothing
-                }
-            });
-            thread.start();
-            if (thread.isAlive()) {
-                thread.interrupt();
-            }
-        }
-
-        void waitForChange() throws InterruptedException, IOException {
-            take();
-            while (poll(750)) {
-                // continue polling
-            }
-            while (pollNow()) {
-                // continue polling
-            }
-        }
-
-        private void take() throws InterruptedException, IOException {
-            while (true) {
-                WatchKey key = watchService.take();
-                if (key != null) {
-                    if (!filter(key).isEmpty()) {
-                        break;
-                    }
-                }
-            }
-        }
-
-        private boolean poll(int milliseconds) throws IOException, InterruptedException {
-            long end = System.currentTimeMillis() + milliseconds;
-            while (true) {
-                int timeToWait = (int) (end - System.currentTimeMillis());
-                WatchKey key = watchService.poll(timeToWait, TimeUnit.MILLISECONDS);
-                if (key == null) {
-                    return false;
-                }
-                if (!filter(key).isEmpty()) {
-                    break;
-                }
-            }
-            return true;
-        }
-
-        private boolean pollNow() throws IOException {
-            WatchKey key = watchService.poll();
-            if (key == null) {
-                return false;
-            }
-            filter(key);
-            return true;
-        }
-
-        private List<Path> filter(WatchKey key) throws IOException {
-            List<Path> result = new ArrayList<>();
-            for (WatchEvent<?> event : key.pollEvents()) {
-                Path path = filter(key, event);
-                if (path != null) {
-                    result.add(path);
-                }
-            }
-            key.reset();
-            return result;
-        }
-
-        private Path filter(WatchKey baseKey, WatchEvent<?> event) throws IOException {
-            if (!(event.context() instanceof Path)) {
-                return null;
-            }
-            Path basePath = keysToPath.get(baseKey);
-            Path path = basePath.resolve((Path) event.context());
-            WatchKey key = pathsToKey.get(path);
-
-            if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
-                if (key != null) {
-                    pathsToKey.remove(path);
-                    keysToPath.remove(key);
-                    key.cancel();
-                }
-            } else if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE) {
-                if (Files.isDirectory(path)) {
-                    register(path);
-                }
-            }
-
-            return path;
-        }
-    }
-
     private void buildNonInteractive() {
         try {
-            build(new ProgressListenerImpl());
+            build(new ProgressListenerImpl(null));
         } catch (Exception e) {
             e.printStackTrace(System.err);
             System.exit(-2);
@@ -535,6 +401,8 @@ public final class TeaVMRunner {
         phaseStartTime = System.currentTimeMillis();
         tool.generate();
         reportPhaseComplete();
+        TeaVMProblemRenderer.describeProblems(tool.getDependencyInfo().getCallGraph(), tool.getProblemProvider(), log);
+        log.flush();
         System.out.println("Build complete for " + ((System.currentTimeMillis() - startTime) / 1000.0) + " seconds");
     }
 
@@ -558,12 +426,17 @@ public final class TeaVMRunner {
 
     class ProgressListenerImpl implements TeaVMProgressListener {
         private TeaVMPhase currentPhase;
-        AtomicBoolean cancelRequested = new AtomicBoolean();
+        private FileSystemWatcher fileSystemWatcher;
+
+        ProgressListenerImpl(FileSystemWatcher fileSystemWatcher) {
+            this.fileSystemWatcher = fileSystemWatcher;
+        }
 
         @Override
         public TeaVMProgressFeedback progressReached(int progress) {
-            return cancelRequested.get() ? TeaVMProgressFeedback.CANCEL : TeaVMProgressFeedback.CONTINUE;
+            return getStatus();
         }
+
         @Override
         public TeaVMProgressFeedback phaseStarted(TeaVMPhase phase, int count) {
             log.flush();
@@ -576,22 +449,25 @@ public final class TeaVMRunner {
                     case DEPENDENCY_ANALYSIS:
                         System.out.print("Analyzing classes...");
                         break;
-                    case LINKING:
-                        System.out.print("Linking methods...");
-                        break;
-                    case OPTIMIZATION:
-                        System.out.print("Optimizing code...");
-                        break;
-                    case DECOMPILATION:
-                        System.out.print("Decompiling...");
-                        break;
-                    case RENDERING:
-                        System.out.print("Generating output...");
+                    case COMPILING:
+                        System.out.print("Compiling...");
                         break;
                 }
                 currentPhase = phase;
             }
-            return cancelRequested.get() ? TeaVMProgressFeedback.CANCEL : TeaVMProgressFeedback.CONTINUE;
+            return getStatus();
+        }
+
+        private TeaVMProgressFeedback getStatus() {
+            try {
+                if (fileSystemWatcher != null && fileSystemWatcher.hasChanges()) {
+                    System.out.println("Classes changed during compilation. Canceling.");
+                    return TeaVMProgressFeedback.CANCEL;
+                }
+                return TeaVMProgressFeedback.CONTINUE;
+            } catch (IOException e) {
+                throw new RuntimeException("IO error occurred");
+            }
         }
     }
 

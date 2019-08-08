@@ -76,6 +76,8 @@ public class WasmClassGenerator {
             DataPrimitives.INT, /* isInstance function */
             DataPrimitives.INT, /* init function */
             DataPrimitives.ADDRESS, /* parent */
+            DataPrimitives.INT, /* interface count */
+            DataPrimitives.ADDRESS, /* interfaces */
             DataPrimitives.ADDRESS, /* enum values */
             DataPrimitives.ADDRESS, /* layout */
             DataPrimitives.ADDRESS  /* simple name */);
@@ -92,9 +94,9 @@ public class WasmClassGenerator {
     private static final int CLASS_IS_INSTANCE = 8;
     private static final int CLASS_INIT = 9;
     private static final int CLASS_PARENT = 10;
-    private static final int CLASS_ENUM_VALUES = 11;
-    private static final int CLASS_LAYOUT = 12;
-    private static final int CLASS_SIMPLE_NAME = 13;
+    private static final int CLASS_ENUM_VALUES = 13;
+    private static final int CLASS_LAYOUT = 14;
+    private static final int CLASS_SIMPLE_NAME = 15;
 
     public WasmClassGenerator(ClassReaderSource processedClassSource, ClassReaderSource classSource,
             VirtualTableProvider vtableProvider, TagRegistry tagRegistry, BinaryWriter binaryWriter,
@@ -163,7 +165,7 @@ public class WasmClassGenerator {
             ClassBinaryData itemBinaryData = binaryDataMap.get(itemType);
 
             VirtualTable vtable = vtableProvider.lookup("java.lang.Object");
-            int vtableSize = vtable != null ? vtable.getEntries().size() : 0;
+            int vtableSize = vtable != null ? vtable.size() : 0;
             DataType arrayType = new DataArray(DataPrimitives.INT, vtableSize);
             DataValue wrapper = new DataStructure((byte) 0, classStructure, arrayType).createValue();
 
@@ -250,7 +252,7 @@ public class WasmClassGenerator {
         int flags = 0;
 
         VirtualTable vtable = vtableProvider.lookup(name);
-        int vtableSize = vtable != null ? vtable.getEntries().size() : 0;
+        int vtableSize = vtable != null ? vtable.size() : 0;
 
         DataType arrayType = new DataArray(DataPrimitives.INT, vtableSize);
         DataValue wrapper = new DataStructure((byte) 0, classStructure, arrayType).createValue();
@@ -376,19 +378,28 @@ public class WasmClassGenerator {
 
     private void fillVirtualTable(VirtualTable vtable, DataValue array) {
         int index = 0;
-        for (VirtualTableEntry vtableEntry : vtable.getEntries().values()) {
-            int methodIndex;
-            if (vtableEntry.getImplementor() == null) {
-                methodIndex = -1;
-            } else {
-                methodIndex = functions.computeIfAbsent(vtableEntry.getImplementor(), implementor -> {
-                    int result = functionTable.size();
-                    functionTable.add(names.forMethod(implementor));
-                    return result;
-                });
-            }
+        List<VirtualTable> tables = new ArrayList<>();
+        VirtualTable vt = vtable;
+        while (vt != null) {
+            tables.add(vt);
+            vt = vt.getParent();
+        }
+        for (int i = tables.size() - 1; i >= 0; --i) {
+            for (MethodDescriptor method : tables.get(i).getMethods()) {
+                int methodIndex = -1;
+                if (method != null) {
+                    VirtualTableEntry entry = vtable.getEntry(method);
+                    if (entry != null) {
+                        methodIndex = functions.computeIfAbsent(entry.getImplementor(), implementor -> {
+                            int result = functionTable.size();
+                            functionTable.add(names.forMethod(implementor));
+                            return result;
+                        });
+                    }
+                }
 
-            array.setInt(index++, methodIndex);
+                array.setInt(index++, methodIndex);
+            }
         }
     }
 

@@ -16,8 +16,10 @@
 package org.teavm.backend.c.intrinsic;
 
 import org.teavm.ast.InvocationExpr;
+import org.teavm.backend.c.generate.CodeGeneratorUtil;
 import org.teavm.backend.c.util.ConstantUtil;
 import org.teavm.interop.Structure;
+import org.teavm.model.ClassReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 import org.teavm.model.lowlevel.Characteristics;
@@ -62,14 +64,22 @@ public class StructureIntrinsic implements Intrinsic {
             case "sizeOf": {
                 String className = ConstantUtil.getClassLiteral(context, invocation, invocation.getArguments().get(0));
                 if (className != null) {
-                    context.writer().print("sizeof(").print(context.names().forClass(className)).print(")");
+                    context.writer().print("sizeof(");
+                    ClassReader cls = context.classes().get(className);
+                    CodeGeneratorUtil.printClassReference(context.writer(), context.includes(), context.names(), cls,
+                            className);
+                    context.writer().print(")");
                 }
                 break;
             }
             case "add": {
                 String className = ConstantUtil.getClassLiteral(context, invocation, invocation.getArguments().get(0));
                 if (className != null) {
-                    context.writer().print("STRUCTURE_ADD(").print(context.names().forClass(className)).print(", ");
+                    ClassReader cls = context.classes().get(className);
+                    context.writer().print("TEAVM_STRUCTURE_ADD(");
+                    CodeGeneratorUtil.printClassReference(context.writer(), context.includes(), context.names(), cls,
+                            className);
+                    context.writer().print(", ");
                     context.emit(invocation.getArguments().get(1));
                     context.writer().print(", ");
                     context.emit(invocation.getArguments().get(2));

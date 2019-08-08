@@ -22,8 +22,6 @@ import org.teavm.interop.Unmanaged;
 @Unmanaged
 @StaticInit
 public class CallSiteLocation extends Structure {
-    public String fileName;
-    public String className;
-    public String methodName;
+    public MethodLocation method;
     public int lineNumber;
 }

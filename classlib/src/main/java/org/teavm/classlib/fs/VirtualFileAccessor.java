@@ -22,7 +22,11 @@ public interface VirtualFileAccessor {
 
     void write(int pos, byte[] buffer, int offset, int limit) throws IOException;
 
-    int size();
+    int size() throws IOException;
 
     void resize(int size) throws IOException;
+
+    void close() throws IOException;
+
+    void flush() throws IOException;
 }

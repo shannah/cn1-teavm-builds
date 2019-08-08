@@ -16,8 +16,10 @@
 package org.teavm.backend.c.intrinsic;
 
 import org.teavm.ast.InvocationExpr;
+import org.teavm.backend.c.generate.CodeGeneratorUtil;
 import org.teavm.backend.c.util.ConstantUtil;
 import org.teavm.interop.Address;
+import org.teavm.model.ClassReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 
@@ -101,7 +103,7 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print(")");
                 break;
             case "getChar":
-                context.writer().print("((int32_t) *(uchar16_t*) ");
+                context.writer().print("((int32_t) *(char16_t*) ");
                 context.emit(invocation.getArguments().get(0));
                 context.writer().print(")");
                 break;
@@ -136,9 +138,9 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print(")");
                 break;
             case "putChar":
-                context.writer().print("(*(uchar16_t*) ");
+                context.writer().print("(*(char16_t*) ");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(" = (uchar16_t) ");
+                context.writer().print(" = (char16_t) ");
                 context.emit(invocation.getArguments().get(1));
                 context.writer().print(")");
                 break;
@@ -160,21 +162,30 @@ public class AddressIntrinsic implements Intrinsic {
 
             case "add":
                 if (invocation.getArguments().size() == 2) {
-                    context.writer().print("ADDRESS_ADD(");
+                    context.writer().print("TEAVM_ADDRESS_ADD(");
                     context.emit(invocation.getArguments().get(0));
                     context.writer().print(", ");
                     context.emit(invocation.getArguments().get(1));
                     context.writer().print(")");
                 } else {
-                    context.writer().print("ADDRESS_ADD(");
+                    context.writer().print("TEAVM_ADDRESS_ADD(");
                     context.emit(invocation.getArguments().get(0));
                     context.writer().print(", ");
                     String className = ConstantUtil.getClassLiteral(context, invocation,
                             invocation.getArguments().get(1));
                     context.emit(invocation.getArguments().get(2));
-                    context.writer().print(" * sizeof(")
-                            .print(className != null ? context.names().forClass(className) : "**")
-                            .print(")");
+
+                    context.writer().print(" * sizeof(");
+
+                    if (className != null) {
+                        ClassReader cls = className != null ? context.classes().get(className) : null;
+                        CodeGeneratorUtil.printClassReference(context.writer(), context.includes(),
+                                context.names(), cls, className);
+                    } else {
+                        context.writer().print("**");
+                    }
+
+                    context.writer().print(")");
                     context.writer().print(")");
                 }
                 break;
@@ -186,7 +197,7 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print(")");
                 break;
             case "align":
-                context.writer().print("ALIGN(");
+                context.writer().print("TEAVM_ALIGN(");
                 context.emit(invocation.getArguments().get(0));
                 context.writer().print(", ");
                 context.emit(invocation.getArguments().get(1));
@@ -199,7 +210,7 @@ public class AddressIntrinsic implements Intrinsic {
                 ValueType.Array type = (ValueType.Array) invocation.getMethod().parameterType(0);
                 context.writer().print("((char*) ");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(" + sizeof(JavaArray) + (intptr_t) ALIGN(NULL, "
+                context.writer().print(" + sizeof(TeaVM_Array) + (intptr_t) TEAVM_ALIGN(NULL, "
                         + sizeOf(type.getItemType()) + "))");
                 break;
             }
@@ -225,6 +236,7 @@ public class AddressIntrinsic implements Intrinsic {
             case BYTE:
                 return 1;
             case SHORT:
+            case CHARACTER:
                 return 2;
             case INTEGER:
             case FLOAT:

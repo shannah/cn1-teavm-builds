@@ -28,7 +28,6 @@ import java.util.Set;
 import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.backend.javascript.spi.InjectedBy;
 import org.teavm.classlib.PlatformDetector;
-import org.teavm.classlib.impl.DeclaringClassMetadataGenerator;
 import org.teavm.classlib.impl.reflection.Flags;
 import org.teavm.classlib.impl.reflection.JSClass;
 import org.teavm.classlib.impl.reflection.JSField;
@@ -42,19 +41,18 @@ import org.teavm.classlib.java.lang.reflect.TModifier;
 import org.teavm.dependency.PluggableDependency;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
+import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Unmanaged;
 import org.teavm.jso.core.JSArray;
 import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformClass;
 import org.teavm.platform.PlatformSequence;
-import org.teavm.platform.metadata.ClassResource;
-import org.teavm.platform.metadata.ClassScopedMetadataProvider;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
 public class TClass<T> extends TObject implements TAnnotatedElement {
-    TString name;
-    TString simpleName;
+    String name;
+    String simpleName;
     private PlatformClass platformClass;
     private TAnnotation[] annotationsCache;
     private Map<TClass<?>, TAnnotation> annotationsByType;
@@ -105,22 +103,22 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
     }
 
     @Unmanaged
-    public TString getName() {
+    public String getName() {
         if (PlatformDetector.isLowLevel()) {
-            return TString.wrap(Platform.getName(platformClass));
+            return Platform.getName(platformClass);
         } else {
             if (name == null) {
-                name = TString.wrap(Platform.getName(platformClass));
+                name = Platform.getName(platformClass);
             }
             return name;
         }
     }
 
-    public TString getSimpleName() {
-        TString simpleName = getSimpleNameCache();
+    public String getSimpleName() {
+        String simpleName = getSimpleNameCache();
         if (simpleName == null) {
             if (isArray()) {
-                simpleName = getComponentType().getSimpleName().concat(TString.wrap("[]"));
+                simpleName = getComponentType().getSimpleName() + "[]";
                 setSimpleNameCache(simpleName);
                 return simpleName;
             }
@@ -137,14 +135,14 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
                     name = name.substring(lastDot + 1);
                 }
             }
-            simpleName = TString.wrap(name);
+            simpleName = name;
             setSimpleNameCache(simpleName);
         }
         return simpleName;
     }
 
     @DelegateTo("getSimpleNameCacheLowLevel")
-    private TString getSimpleNameCache() {
+    private String getSimpleNameCache() {
         return simpleName;
     }
 
@@ -154,7 +152,8 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
         return Address.ofObject(this).<RuntimeClass>toStructure().simpleName;
     }
 
-    private void setSimpleNameCache(TString value) {
+    @DelegateTo("setSimpleNameCacheLowLevel")
+    private void setSimpleNameCache(String value) {
         simpleName = value;
     }
 
@@ -211,6 +210,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
     }
 
     @GeneratedBy(ClassGenerator.class)
+    @NoSideEffects
     private static native void createMetadata();
 
     public TField[] getFields() throws TSecurityException {
@@ -559,8 +559,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
     @SuppressWarnings("unchecked")
     public T cast(TObject obj) {
         if (obj != null && !isAssignableFrom((TClass<?>) (Object) obj.getClass())) {
-            throw new TClassCastException(TString.wrap(obj.getClass().getName()
-                    + " is not subtype of " + name));
+            throw new TClassCastException(obj.getClass().getName() + " is not subtype of " + getName());
         }
         return (T) obj;
     }
@@ -598,12 +597,11 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
     }
 
     public TClass<?> getDeclaringClass() {
-        ClassResource res = getDeclaringClass(platformClass);
-        return res != null ? getClass(Platform.classFromResource(res)) : null;
+        PlatformClass result = getDeclaringClassImpl(getPlatformClass());
+        return result != null ? getClass(result) : null;
     }
-
-    @ClassScopedMetadataProvider(DeclaringClassMetadataGenerator.class)
-    private static native ClassResource getDeclaringClass(PlatformClass cls);
+    
+    private static native PlatformClass getDeclaringClassImpl(PlatformClass cls);
 
     @SuppressWarnings("unchecked")
     public <U> TClass<? extends U> asSubclass(TClass<U> clazz) {

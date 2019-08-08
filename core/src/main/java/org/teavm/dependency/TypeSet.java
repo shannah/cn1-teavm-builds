@@ -66,7 +66,6 @@ class TypeSet {
         }
         types.set(type.index);
         typesCount++;
-        return;
     }
 
     DependencyType[] getTypes() {
@@ -95,12 +94,33 @@ class TypeSet {
         int j = 0;
         DependencyType[] types;
         if (this.types != null) {
-            types = new DependencyType[this.types.cardinality()];
-            for (int index = this.types.nextSetBit(0); index >= 0; index = this.types.nextSetBit(index + 1)) {
-                DependencyType type = dependencyAnalyzer.types.get(index);
-                if (sourceNode.filter(type) && !targetNode.hasType(type) && targetNode.filter(type)
-                        && (filter == null || filter.match(type))) {
-                    types[j++] = type;
+            int[] filteredTypes = null;
+            if (typesCount > 15) {
+                filteredTypes = filter != null ? filter.tryExtract(this.types) : null;
+                if (filteredTypes == null) {
+                    filteredTypes = sourceNode.getFilter().tryExtract(this.types);
+                }
+                if (filteredTypes == null) {
+                    filteredTypes = targetNode.getFilter().tryExtract(this.types);
+                }
+            }
+            if (filteredTypes != null) {
+                types = new DependencyType[filteredTypes.length];
+                for (int index : filteredTypes) {
+                    DependencyType type = dependencyAnalyzer.types.get(index);
+                    if (sourceNode.filter(type) && !targetNode.hasType(type) && targetNode.filter(type)
+                            && (filter == null || filter.match(type))) {
+                        types[j++] = type;
+                    }
+                }
+            } else {
+                types = new DependencyType[typesCount];
+                for (int index = this.types.nextSetBit(0); index >= 0; index = this.types.nextSetBit(index + 1)) {
+                    DependencyType type = dependencyAnalyzer.types.get(index);
+                    if (sourceNode.filter(type) && !targetNode.hasType(type) && targetNode.filter(type)
+                            && (filter == null || filter.match(type))) {
+                        types[j++] = type;
+                    }
                 }
             }
         } else if (this.smallTypes != null) {

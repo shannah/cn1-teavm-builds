@@ -15,26 +15,32 @@
  */
 package org.teavm.classlib.java.lang;
 
-import org.teavm.classlib.java.io.TIOException;
+import java.io.IOException;
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.io.TOutputStream;
-import org.teavm.interop.DelegateTo;
 import org.teavm.interop.Import;
+import org.teavm.interop.Unmanaged;
 import org.teavm.jso.JSBody;
 
 class TConsoleOutputStreamStderr extends TOutputStream {
     @Override
-    @DelegateTo("writeLowLevel")
-    public void write(int b) throws TIOException {
-        writeJs(b);
-    }
-
-    @JSBody(params = "b", script = "$rt_putStderr(b);")
-    private static native void writeJs(int b);
-
-    private void writeLowLevel(int b) {
+    public void write(int b) throws IOException {
         writeImpl(b);
     }
 
+    static void writeImpl(int b) {
+        if (PlatformDetector.isC()) {
+            writeC(b);
+        } else {
+            writeJs(b);
+        }
+    }
+
+    @JSBody(params = "b", script = "$rt_putStderr(b);")
     @Import(name = "putwchar", module = "teavm")
-    static native void writeImpl(int b);
+    private static native void writeJs(int b);
+
+    @Unmanaged
+    @Import(name = "teavm_logchar")
+    private static native void writeC(int b);
 }

@@ -17,10 +17,11 @@ package org.teavm.model.util;
 
 import com.carrotsearch.hppc.IntHashSet;
 import com.carrotsearch.hppc.IntSet;
-import java.util.ArrayDeque;
+import com.carrotsearch.hppc.IntStack;
 import java.util.BitSet;
-import java.util.Deque;
+import org.teavm.common.DominatorTree;
 import org.teavm.common.Graph;
+import org.teavm.common.GraphUtils;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.Incoming;
 import org.teavm.model.Instruction;
@@ -30,6 +31,7 @@ import org.teavm.model.Variable;
 
 public class LivenessAnalyzer {
     private BitSet[] liveVars;
+    private BitSet[] liveOutVars;
 
     public boolean liveIn(int block, int var) {
         return liveVars[block].get(var);
@@ -39,16 +41,23 @@ public class LivenessAnalyzer {
         return (BitSet) liveVars[block].clone();
     }
 
+    public BitSet liveOut(int block) {
+        return (BitSet) liveOutVars[block].clone();
+    }
+
     public void analyze(Program program) {
         Graph cfg = ProgramUtils.buildControlFlowGraph(program);
-        liveVars = new BitSet[cfg.size()];
+        DominatorTree dominatorTree = GraphUtils.buildDominatorTree(cfg);
+        liveVars = new BitSet[program.basicBlockCount()];
+        liveOutVars = new BitSet[program.basicBlockCount()];
         for (int i = 0; i < liveVars.length; ++i) {
             liveVars[i] = new BitSet(program.basicBlockCount());
+            liveOutVars[i] = new BitSet(program.basicBlockCount());
         }
 
         UsageExtractor usageExtractor = new UsageExtractor();
         DefinitionExtractor defExtractor = new DefinitionExtractor();
-        Deque<Task> stack = new ArrayDeque<>();
+        IntStack stack = new IntStack();
         int[] definitions = new int[program.variableCount()];
         for (int i = 0; i < program.basicBlockCount(); ++i) {
             BasicBlock block = program.basicBlockAt(i);
@@ -61,10 +70,8 @@ public class LivenessAnalyzer {
                 insn.acceptVisitor(usageExtractor);
                 IntSet usedVars = new IntHashSet();
                 for (Variable var : usageExtractor.getUsedVariables()) {
-                    Task task = new Task();
-                    task.block = i;
-                    task.var = var.getIndex();
-                    stack.push(task);
+                    stack.push(i);
+                    stack.push(var.getIndex());
                     usedVars.add(var.getIndex());
                 }
                 insn.acceptVisitor(defExtractor);
@@ -78,31 +85,37 @@ public class LivenessAnalyzer {
             for (Phi phi : block.getPhis()) {
                 definitions[phi.getReceiver().getIndex()] = i;
                 for (Incoming incoming : phi.getIncomings()) {
-                    Task task = new Task();
-                    task.block = incoming.getSource().getIndex();
-                    task.var = incoming.getValue().getIndex();
-                    stack.push(task);
+                    stack.push(incoming.getSource().getIndex());
+                    stack.push(incoming.getValue().getIndex());
                 }
             }
         }
 
         while (!stack.isEmpty()) {
-            Task task = stack.pop();
-            if (liveVars[task.block].get(task.var) || definitions[task.var] == task.block) {
+            int variable = stack.pop();
+            int block = stack.pop();
+            BitSet blockLiveVars = liveVars[block];
+            if (blockLiveVars.get(variable) || definitions[variable] == block
+                    || !dominatorTree.dominates(definitions[variable], block)) {
                 continue;
             }
-            liveVars[task.block].set(task.var, true);
-            for (int pred : cfg.incomingEdges(task.block)) {
-                Task nextTask = new Task();
-                nextTask.block = pred;
-                nextTask.var = task.var;
-                stack.push(nextTask);
+            liveVars[block].set(variable, true);
+            for (int pred : cfg.incomingEdges(block)) {
+                stack.push(pred);
+                stack.push(variable);
             }
         }
-    }
 
-    private static class Task {
-        int block;
-        int var;
+        for (int i = 0; i < liveVars.length; ++i) {
+            for (int j : cfg.incomingEdges(i)) {
+                liveOutVars[j].or(liveVars[i]);
+            }
+            BasicBlock block = program.basicBlockAt(i);
+            for (Phi phi : block.getPhis()) {
+                for (Incoming incoming : phi.getIncomings()) {
+                    liveOutVars[incoming.getSource().getIndex()].set(incoming.getValue().getIndex());
+                }
+            }
+        }
     }
 }

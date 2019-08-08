@@ -25,6 +25,9 @@ public class RuntimeClass extends RuntimeObject {
 
     public static final int PRIMITIVE_SHIFT = 3;
     public static final int PRIMITIVE_MASK = 15;
+    public static final int VM_TYPE_SHIFT = 7;
+    public static final int VM_TYPE_MASK = 7;
+
     public static final int BOOLEAN_PRIMITIVE = 0;
     public static final int BYTE_PRIMITIVE = 1;
     public static final int SHORT_PRIMITIVE = 2;
@@ -35,16 +38,22 @@ public class RuntimeClass extends RuntimeObject {
     public static final int DOUBLE_PRIMITIVE = 7;
     public static final int VOID_PRIMITIVE = 8;
 
+    public static final int VM_TYPE_REGULAR = 0;
+    public static final int VM_TYPE_WEAKREFERENCE = 1;
+    public static final int VM_TYPE_REFERENCEQUEUE = 2;
+
     public int size;
     public int flags;
     public int tag;
     public int canary;
-    public RuntimeObject name;
+    public RuntimeObjectPtr name;
     public RuntimeClass itemType;
     public RuntimeClass arrayType;
     public IsSupertypeFunction isSupertypeOf;
     public InitFunction init;
     public RuntimeClass parent;
+    public int superinterfaceCount;
+    public RuntimeClassPointer superinterfaces;
     public Address enumValues;
     public Address layout;
     public RuntimeObject simpleName;

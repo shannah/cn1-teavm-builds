@@ -15,32 +15,39 @@
  */
 package org.teavm.backend.c.generate;
 
+import org.teavm.backend.c.util.InteropUtil;
+import org.teavm.model.ClassReader;
 import org.teavm.model.ValueType;
 
 public final class CodeGeneratorUtil {
     private CodeGeneratorUtil() {
     }
 
-    public static void writeValue(CodeWriter writer, GenerationContext context, Object value) {
+    public static void writeIntValue(CodeWriter writer, int i) {
+        if (i == Integer.MIN_VALUE) {
+            writer.print("(int32_t) INT32_C(0x80000000)");
+        } else {
+            long v = i;
+            if (i < 0) {
+                writer.print("-");
+                v = -v;
+            }
+            writer.print("INT32_C(");
+            writeLongConstant(writer, v);
+            writer.print(")");
+        }
+    }
+
+    public static void writeValue(CodeWriter writer, GenerationContext context, IncludeManager includes,
+            Object value) {
         if (value == null) {
             writer.print("NULL");
         } else if (value instanceof String) {
+            includes.includePath("strings.h");
             int index = context.getStringPool().getStringIndex((String) value);
-            writer.print("(stringPool + " + index + ")");
+            writer.print("TEAVM_GET_STRING(" + index + ")");
         } else if (value instanceof Integer) {
-            int i = (Integer) value;
-            long v = i;
-            if (i == Integer.MIN_VALUE) {
-                writer.print("(int32_t) INT32_C(0x80000000)");
-            } else {
-                if (i < 0) {
-                    writer.print("-");
-                    v = -v;
-                }
-                writer.print("INT32_C(");
-                writeLongConstant(writer, v);
-                writer.print(")");
-            }
+            writeIntValue(writer, (Integer) value);
         } else if (value instanceof Long) {
             long v = (Long) value;
             if (v == Long.MIN_VALUE) {
@@ -63,8 +70,10 @@ public final class CodeGeneratorUtil {
                 writer.print("INFINITY");
             } else if (Float.isNaN(f)) {
                 writer.print("NAN");
-            } else {
+            } else  if ((int) f == f) {
                 writer.print(f + "f");
+            } else {
+                writer.print(Float.toHexString(f) + "f");
             }
         } else if (value instanceof Double) {
             double d = (Double) value;
@@ -75,12 +84,17 @@ public final class CodeGeneratorUtil {
                 writer.print("INFINITY");
             } else if (Double.isNaN(d)) {
                 writer.print("NAN");
-            } else {
+            } else if ((int) d == d) {
                 writer.print(value.toString());
+            } else {
+                writer.print(Double.toHexString(d));
             }
         } else if (value instanceof Boolean) {
             writer.print((Boolean) value ? "1" : "0");
+        } else if (value instanceof Character) {
+            writeIntValue(writer, (char) value);
         } else if (value instanceof ValueType) {
+            includes.includeType((ValueType) value);
             writer.print("&").print(context.getNames().forClassInstance((ValueType) value));
         }
     }
@@ -93,4 +107,14 @@ public final class CodeGeneratorUtil {
         writer.print(String.valueOf(v));
     }
 
+    public static void printClassReference(CodeWriter writer, IncludeManager includes, NameProvider names,
+            ClassReader cls, String className) {
+        if (cls != null && InteropUtil.isNative(cls)) {
+            InteropUtil.processInclude(cls.getAnnotations(), includes);
+            InteropUtil.printNativeReference(writer, cls);
+        } else {
+            includes.includeClass(className);
+            writer.print(names.forClass(className));
+        }
+    }
 }

@@ -24,36 +24,54 @@ import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Phi;
 import org.teavm.model.Program;
+import org.teavm.model.TryCatchBlock;
 import org.teavm.model.Variable;
 import org.teavm.model.instructions.ExitInstruction;
 import org.teavm.model.instructions.IntegerConstantInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.instructions.JumpInstruction;
+import org.teavm.model.util.BasicBlockMapper;
 import org.teavm.runtime.ShadowStack;
 
 public class ShadowStackTransformer {
-    private Characteristics managedMethodRepository;
+    private Characteristics characteristics;
     private GCShadowStackContributor gcContributor;
-    private List<CallSiteDescriptor> callSites = new ArrayList<>();
+    private boolean exceptionHandling;
 
-    public ShadowStackTransformer(Characteristics managedMethodRepository) {
-        gcContributor = new GCShadowStackContributor(managedMethodRepository);
-        this.managedMethodRepository = managedMethodRepository;
-    }
-
-    public List<CallSiteDescriptor> getCallSites() {
-        return callSites;
+    public ShadowStackTransformer(Characteristics characteristics, boolean exceptionHandling) {
+        gcContributor = new GCShadowStackContributor(characteristics);
+        this.characteristics = characteristics;
+        this.exceptionHandling = exceptionHandling;
     }
 
     public void apply(Program program, MethodReader method) {
-        if (!managedMethodRepository.isManaged(method.getReference())) {
+        if (!characteristics.isManaged(method.getReference())) {
             return;
         }
 
         int shadowStackSize = gcContributor.contribute(program, method);
-        boolean exceptions = new ExceptionHandlingShadowStackContributor(managedMethodRepository, callSites,
-                method.getReference(), program).contribute();
+        boolean exceptions;
+        if (exceptionHandling) {
+            List<CallSiteDescriptor> callSites = new ArrayList<>();
+            exceptions = new ExceptionHandlingShadowStackContributor(characteristics, callSites,
+                    method.getReference(), program).contribute();
+            CallSiteDescriptor.save(callSites, program.getAnnotations());
+        } else {
+            exceptions = false;
+            outer: for (BasicBlock block : program.getBasicBlocks()) {
+                if (!block.getTryCatchBlocks().isEmpty()) {
+                    exceptions = true;
+                    break;
+                }
+                for (Instruction insn : block) {
+                    if (ExceptionHandlingShadowStackContributor.isCallInstruction(characteristics, insn)) {
+                        exceptions = true;
+                        break outer;
+                    }
+                }
+            }
+        }
 
         if (shadowStackSize > 0 || exceptions) {
             addStackAllocation(program, shadowStackSize);
@@ -63,6 +81,10 @@ public class ShadowStackTransformer {
 
     private void addStackAllocation(Program program, int maxDepth) {
         BasicBlock block = program.basicBlockAt(0);
+        if (!block.getTryCatchBlocks().isEmpty()) {
+            splitFirstBlock(program);
+        }
+
         List<Instruction> instructionsToAdd = new ArrayList<>();
         Variable sizeVariable = program.createVariable();
 
@@ -74,10 +96,30 @@ public class ShadowStackTransformer {
         InvokeInstruction invocation = new InvokeInstruction();
         invocation.setType(InvocationType.SPECIAL);
         invocation.setMethod(new MethodReference(ShadowStack.class, "allocStack", int.class, void.class));
-        invocation.getArguments().add(sizeVariable);
+        invocation.setArguments(sizeVariable);
         instructionsToAdd.add(invocation);
 
         block.addFirstAll(instructionsToAdd);
+    }
+
+    private void splitFirstBlock(Program program) {
+        BasicBlock block = program.basicBlockAt(0);
+        BasicBlock split = program.createBasicBlock();
+        while (block.getFirstInstruction() != null) {
+            Instruction instruction = block.getFirstInstruction();
+            instruction.delete();
+            split.add(instruction);
+        }
+        JumpInstruction jump = new JumpInstruction();
+        jump.setLocation(split.getFirstInstruction().getLocation());
+        jump.setTarget(split);
+        block.add(jump);
+
+        List<TryCatchBlock> tryCatchBlocks = new ArrayList<>(block.getTryCatchBlocks());
+        block.getTryCatchBlocks().clear();
+        split.getTryCatchBlocks().addAll(tryCatchBlocks);
+
+        new BasicBlockMapper((BasicBlock b) -> b == block ? split : b).transform(program);
     }
 
     private void addStackRelease(Program program, int maxDepth) {
@@ -139,7 +181,7 @@ public class ShadowStackTransformer {
         InvokeInstruction invocation = new InvokeInstruction();
         invocation.setType(InvocationType.SPECIAL);
         invocation.setMethod(new MethodReference(ShadowStack.class, "releaseStack", int.class, void.class));
-        invocation.getArguments().add(sizeVariable);
+        invocation.setArguments(sizeVariable);
         instructionsToAdd.add(invocation);
 
         exitBlock.getLastInstruction().insertPreviousAll(instructionsToAdd);

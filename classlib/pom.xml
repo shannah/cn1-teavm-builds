@@ -23,8 +23,6 @@
   </parent>
   <artifactId>teavm-classlib</artifactId>
 
-  <packaging>bundle</packaging>
-
   <name>TeaVM Java class library</name>
   <description>TeaVM Java class library emulation</description>
 
@@ -47,6 +45,8 @@
       <groupId>org.teavm</groupId>
       <artifactId>teavm-core</artifactId>
       <version>${project.version}</version>
+      <scope>provided</scope>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.teavm</groupId>
@@ -76,6 +76,13 @@
     <dependency>
       <groupId>org.ow2.asm</groupId>
       <artifactId>asm-util</artifactId>
+      <scope>provided</scope>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>commons-io</groupId>
+      <artifactId>commons-io</artifactId>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>com.google.code.gson</groupId>
@@ -97,21 +104,31 @@
   <build>
     <plugins>
       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.2.1</version>
+        <executions>
+          <execution>
+            <id>generate-tz-cache</id>
+            <goals>
+              <goal>java</goal>
+            </goals>
+            <phase>process-classes</phase>
+            <configuration>
+              <mainClass>org.teavm.classlib.impl.tz.TimeZoneCache</mainClass>
+              <arguments>
+                <argument>${project.build.directory}/classes/org/teavm/classlib/impl/tz/cache</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
         <configuration>
           <configLocation>../checkstyle.xml</configLocation>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.felix</groupId>
-        <artifactId>maven-bundle-plugin</artifactId>
-        <extensions>true</extensions>
-        <configuration>
-          <instructions>
-            <Export-Package>org.teavm.classlib.*</Export-Package>
-            <Bundle-SymbolicName>teavm-classlib</Bundle-SymbolicName>
-          </instructions>
         </configuration>
       </plugin>
       <plugin>
@@ -121,6 +138,40 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>html/**</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <artifactSet>
+                <includes>
+                  <include>org.teavm:teavm-classlib</include>
+                </includes>
+              </artifactSet>
+              <relocations>
+                <relocation>
+                  <pattern>org.objectweb.asm</pattern>
+                  <shadedPattern>org.teavm.asm</shadedPattern>
+                </relocation>
+              </relocations>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

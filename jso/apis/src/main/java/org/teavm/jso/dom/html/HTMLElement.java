@@ -115,6 +115,9 @@ public interface HTMLElement extends Element, ElementCSSInlineStyle, EventTarget
     int getScrollHeight();
 
     @JSProperty
+    int getOffsetWidth();
+
+    @JSProperty
     int getOffsetHeight();
 
     @JSProperty
@@ -186,4 +189,6 @@ public interface HTMLElement extends Element, ElementCSSInlineStyle, EventTarget
 
     @Override
     NodeList<? extends HTMLElement> querySelectorAll(String selectors);
+
+    void requestPointerLock();
 }

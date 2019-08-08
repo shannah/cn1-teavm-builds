@@ -19,17 +19,21 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import org.teavm.backend.c.generators.Generator;
 import org.teavm.backend.c.intrinsic.Intrinsic;
+import org.teavm.dependency.DependencyInfo;
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.MethodReference;
 import org.teavm.model.classes.VirtualTableProvider;
 import org.teavm.model.lowlevel.Characteristics;
+import org.teavm.vm.BuildTarget;
 
 public class GenerationContext {
     private VirtualTableProvider virtualTableProvider;
     private Characteristics characteristics;
+    private DependencyInfo dependencies;
     private StringPool stringPool;
     private NameProvider names;
     private Diagnostics diagnostics;
@@ -37,22 +41,37 @@ public class GenerationContext {
     private List<Intrinsic> intrinsics;
     private List<Generator> generators;
     private Map<MethodReference, Intrinsic> intrinsicCache = new HashMap<>();
+    private Predicate<MethodReference> asyncMethods;
+    private BuildTarget buildTarget;
+    private boolean incremental;
+    private boolean longjmp;
 
     public GenerationContext(VirtualTableProvider virtualTableProvider, Characteristics characteristics,
-            StringPool stringPool, NameProvider names, Diagnostics diagnostics, ClassReaderSource classSource,
-            List<Intrinsic> intrinsics, List<Generator> generators) {
+            DependencyInfo dependencies, StringPool stringPool, NameProvider names, Diagnostics diagnostics,
+            ClassReaderSource classSource, List<Intrinsic> intrinsics, List<Generator> generators,
+            Predicate<MethodReference> asyncMethods, BuildTarget buildTarget, boolean incremental,
+            boolean longjmp) {
         this.virtualTableProvider = virtualTableProvider;
         this.characteristics = characteristics;
+        this.dependencies = dependencies;
         this.stringPool = stringPool;
         this.names = names;
         this.diagnostics = diagnostics;
         this.classSource = classSource;
         this.intrinsics = new ArrayList<>(intrinsics);
         this.generators = new ArrayList<>(generators);
+        this.asyncMethods = asyncMethods;
+        this.buildTarget = buildTarget;
+        this.incremental = incremental;
+        this.longjmp = longjmp;
     }
 
     public void addIntrinsic(Intrinsic intrinsic) {
         intrinsics.add(intrinsic);
+    }
+
+    public void addGenerator(Generator generator) {
+        generators.add(generator);
     }
 
     public VirtualTableProvider getVirtualTableProvider() {
@@ -61,6 +80,10 @@ public class GenerationContext {
 
     public Characteristics getCharacteristics() {
         return characteristics;
+    }
+
+    public DependencyInfo getDependencies() {
+        return dependencies;
     }
 
     public StringPool getStringPool() {
@@ -91,5 +114,21 @@ public class GenerationContext {
             }
         }
         return null;
+    }
+
+    public boolean isAsync(MethodReference method) {
+        return asyncMethods.test(method);
+    }
+
+    public BuildTarget getBuildTarget() {
+        return buildTarget;
+    }
+
+    public boolean isIncremental() {
+        return incremental;
+    }
+
+    public boolean isLongjmp() {
+        return longjmp;
     }
 }

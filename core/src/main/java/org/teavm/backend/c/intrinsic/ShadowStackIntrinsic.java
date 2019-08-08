@@ -49,48 +49,49 @@ public class ShadowStackIntrinsic implements Intrinsic {
     public void apply(IntrinsicContext context, InvocationExpr invocation) {
         switch (invocation.getMethod().getName()) {
             case "allocStack":
-                context.writer().print("ALLOC_STACK");
+                context.writer().print("TEAVM_ALLOC_STACK");
                 break;
             case "releaseStack":
-                context.writer().print("RELEASE_STACK");
+                context.writer().print("TEAVM_RELEASE_STACK");
                 return;
             case "registerGCRoot":
-                context.writer().print("GC_ROOT");
+                context.writer().print("TEAVM_GC_ROOT");
                 break;
             case "removeGCRoot":
-                context.writer().print("GC_ROOT_RELEASE");
+                context.writer().print("TEAVM_GC_ROOT_RELEASE");
                 break;
             case "registerCallSite":
-                context.writer().print("CALL_SITE");
+                context.writer().print("TEAVM_CALL_SITE");
                 break;
             case "getExceptionHandlerId":
-                context.writer().print("EXCEPTION_HANDLER");
+                context.writer().print("TEAVM_EXCEPTION_HANDLER");
                 return;
             case "setExceptionHandlerId":
-                context.writer().print("SET_EXCEPTION_HANDLER");
+                context.writer().print("TEAVM_SET_EXCEPTION_HANDLER");
                 break;
             case "getStackTop":
-                context.writer().print("stackTop");
+                context.writer().print("teavm_stackTop");
                 return;
             case "getNextStackFrame":
-                context.writer().print("((void**) ");
+                context.writer().print("TEAVM_GET_NEXT_FRAME(");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(")[0]");
+                context.writer().print(")");
                 return;
             case "getStackRootCount":
-                context.writer().print("((int32_t) (intptr_t) ((void**) ");
+                context.writer().print("TEAVM_GC_ROOTS_COUNT(");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(")[2])");
+                context.writer().print(")");
                 return;
-            case "getStackRootPointer":
-                context.writer().print("&((void**) ");
+            case "getStackRootPointer": {
+                context.writer().print("TEAVM_GET_GC_ROOTS(");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(")[3]");
+                context.writer().print(")");
                 return;
+            }
             case "getCallSiteId":
-                context.writer().print("((int32_t) (intptr_t) ((void**) ");
+                context.writer().print("TEAVM_GET_CALL_SITE_ID(");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(")[1])");
+                context.writer().print(")");
                 return;
         }
 

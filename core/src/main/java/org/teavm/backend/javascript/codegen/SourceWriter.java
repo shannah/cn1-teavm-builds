@@ -47,10 +47,6 @@ public class SourceWriter implements Appendable, LocationProvider {
         return this;
     }
 
-    public SourceWriter append(Object value) throws IOException {
-        return append(String.valueOf(value));
-    }
-
     public SourceWriter append(int value) throws IOException {
         return append(String.valueOf(value));
     }
@@ -98,46 +94,60 @@ public class SourceWriter implements Appendable, LocationProvider {
         innerWriter.append(csq, start, end);
     }
 
-    public SourceWriter appendClass(String cls) throws NamingException, IOException {
-        return append(naming.getNameFor(cls));
+    public SourceWriter appendClass(String cls) throws IOException {
+        return appendName(naming.getNameFor(cls));
     }
 
-    public SourceWriter appendClass(Class<?> cls) throws NamingException, IOException {
-        return append(naming.getNameFor(cls.getName()));
+    public SourceWriter appendClass(Class<?> cls) throws IOException {
+        return appendClass(cls.getName());
     }
 
-    public SourceWriter appendField(FieldReference field) throws NamingException, IOException {
+    public SourceWriter appendField(FieldReference field) throws IOException {
         return append(naming.getNameFor(field));
     }
 
-    public SourceWriter appendStaticField(FieldReference field) throws NamingException, IOException {
-        return append(naming.getFullNameFor(field));
+    public SourceWriter appendStaticField(FieldReference field) throws IOException {
+        return appendName(naming.getFullNameFor(field));
     }
 
-    public SourceWriter appendMethod(MethodDescriptor method) throws NamingException, IOException {
+    public SourceWriter appendMethod(MethodDescriptor method) throws IOException {
         return append(naming.getNameFor(method));
     }
 
-    public SourceWriter appendMethod(String name, Class<?>... params) throws NamingException, IOException {
+    public SourceWriter appendMethod(String name, Class<?>... params) throws IOException {
         return append(naming.getNameFor(new MethodDescriptor(name, params)));
     }
 
-    public SourceWriter appendMethodBody(MethodReference method) throws NamingException, IOException {
-        return append(naming.getFullNameFor(method));
+    public SourceWriter appendMethodBody(MethodReference method) throws IOException {
+        return appendName(naming.getFullNameFor(method));
     }
 
-    public SourceWriter appendMethodBody(String className, String name, ValueType... params)
-            throws NamingException, IOException {
-        return append(naming.getFullNameFor(new MethodReference(className, new MethodDescriptor(name, params))));
+    public SourceWriter appendMethodBody(String className, String name, ValueType... params) throws IOException {
+        return appendMethodBody(new MethodReference(className, new MethodDescriptor(name, params)));
     }
 
-    public SourceWriter appendMethodBody(Class<?> cls, String name, Class<?>... params)
-            throws NamingException, IOException {
-        return append(naming.getFullNameFor(new MethodReference(cls, name, params)));
+    public SourceWriter appendMethodBody(Class<?> cls, String name, Class<?>... params) throws IOException {
+        return appendMethodBody(new MethodReference(cls, name, params));
     }
 
-    public SourceWriter appendFunction(String name) throws NamingException, IOException {
+    public SourceWriter appendFunction(String name) throws IOException {
         return append(naming.getNameForFunction(name));
+    }
+
+    public SourceWriter appendInit(MethodReference method) throws IOException {
+        return appendName(naming.getNameForInit(method));
+    }
+
+    public SourceWriter appendClassInit(String className) throws IOException {
+        return appendName(naming.getNameForClassInit(className));
+    }
+
+    private SourceWriter appendName(ScopedName name) throws IOException {
+        if (name.scoped) {
+            append(naming.getScopeName()).append(".");
+        }
+        append(name.value);
+        return this;
     }
 
     private void appendIndent() throws IOException {

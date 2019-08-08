@@ -16,6 +16,7 @@
 package org.teavm.runtime;
 
 import org.teavm.interop.Address;
+import org.teavm.interop.Import;
 import org.teavm.interop.StaticInit;
 import org.teavm.interop.Structure;
 import org.teavm.interop.Unmanaged;
@@ -31,6 +32,7 @@ public final class GC {
     static FreeChunkHolder currentChunkPointer;
     static int freeChunks;
     static int freeMemory = (int) availableBytes();
+    static RuntimeReference firstWeakReference;
 
     static native Address gcStorageAddress();
 
@@ -45,6 +47,9 @@ public final class GC {
     public static native long availableBytes();
 
     private static native int regionSize();
+
+    @Import(name = "teavm_outOfMemory")
+    private static native void outOfMemory();
 
     public static int getFreeMemory() {
         return freeMemory;
@@ -88,7 +93,10 @@ public final class GC {
             return;
         }
         collectGarbage(size);
-        getAvailableChunkIfPossible(size);
+        if (!getAvailableChunkIfPossible(size)) {
+            ExceptionHandling.printStack();
+            outOfMemory();
+        }
     }
 
     private static boolean getAvailableChunkIfPossible(int size) {
@@ -115,12 +123,14 @@ public final class GC {
 
     public static boolean collectGarbage(int size) {
         mark();
+        processReferences();
         sweep();
         updateFreeMemory();
         return true;
     }
 
     private static void mark() {
+        firstWeakReference = null;
         Allocator.fillZero(regionsAddress().toAddress(), regionMaxCount() * Structure.sizeOf(Region.class));
 
         Address staticRoots = Mutator.getStaticGCRoots();
@@ -169,34 +179,101 @@ public final class GC {
 
             RuntimeClass cls = RuntimeClass.getClass(object);
             if (cls.itemType == null) {
-                while (cls != null) {
-                    Address layout = cls.layout;
-                    if (layout != null) {
-                        short fieldCount = layout.getShort();
-                        while (fieldCount-- > 0) {
-                            layout = layout.add(2);
-                            int fieldOffset = layout.getShort();
-                            RuntimeObject reference = object.toAddress().add(fieldOffset).getAddress().toStructure();
-                            if (reference != null && !isMarked(reference)) {
-                                MarkQueue.enqueue(reference);
-                            }
-                        }
-                    }
-                    cls = cls.parent;
-                }
+                markObject(cls, object);
             } else {
-                if ((cls.itemType.flags & RuntimeClass.PRIMITIVE) == 0) {
-                    RuntimeArray array = (RuntimeArray) object;
-                    Address base = Address.align(array.toAddress().add(RuntimeArray.class, 1), Address.sizeOf());
-                    for (int i = 0; i < array.size; ++i) {
-                        RuntimeObject reference = base.getAddress().toStructure();
-                        if (reference != null && !isMarked(reference)) {
-                            MarkQueue.enqueue(reference);
-                        }
-                        base = base.add(Address.sizeOf());
-                    }
+                markArray(cls, (RuntimeArray) object);
+            }
+        }
+    }
+
+    private static void markObject(RuntimeClass cls, RuntimeObject object) {
+        while (cls != null) {
+            int type = (cls.flags >> RuntimeClass.VM_TYPE_SHIFT) & RuntimeClass.VM_TYPE_MASK;
+            switch (type) {
+                case RuntimeClass.VM_TYPE_WEAKREFERENCE:
+                    markWeakReference((RuntimeReference) object);
+                    break;
+
+                case RuntimeClass.VM_TYPE_REFERENCEQUEUE:
+                    markReferenceQueue((RuntimeReferenceQueue) object);
+                    break;
+
+                default:
+                    markFields(cls, object);
+                    break;
+            }
+            cls = cls.parent;
+        }
+    }
+
+    private static void markWeakReference(RuntimeReference object) {
+        if (object.queue != null) {
+            mark(object.queue);
+            if (object.next != null && object.object != null) {
+                mark(object.object);
+            }
+        }
+        if (object.next == null && object.object != null) {
+            object.next = firstWeakReference;
+            firstWeakReference = object;
+        }
+    }
+
+    private static void markReferenceQueue(RuntimeReferenceQueue object) {
+        RuntimeReference reference = object.first;
+        while (reference != null) {
+            mark(reference);
+            reference = reference.next;
+        }
+    }
+
+    private static void markFields(RuntimeClass cls, RuntimeObject object) {
+        Address layout = cls.layout;
+        if (layout != null) {
+            short fieldCount = layout.getShort();
+            while (fieldCount-- > 0) {
+                layout = layout.add(2);
+                int fieldOffset = layout.getShort();
+                RuntimeObject reference = object.toAddress().add(fieldOffset).getAddress().toStructure();
+                if (reference != null && !isMarked(reference)) {
+                    MarkQueue.enqueue(reference);
                 }
             }
+        }
+    }
+
+    private static void markArray(RuntimeClass cls, RuntimeArray array) {
+        if ((cls.itemType.flags & RuntimeClass.PRIMITIVE) != 0) {
+            return;
+        }
+        Address base = Address.align(array.toAddress().add(RuntimeArray.class, 1), Address.sizeOf());
+        for (int i = 0; i < array.size; ++i) {
+            RuntimeObject reference = base.getAddress().toStructure();
+            if (reference != null && !isMarked(reference)) {
+                MarkQueue.enqueue(reference);
+            }
+            base = base.add(Address.sizeOf());
+        }
+    }
+
+    private static void processReferences() {
+        RuntimeReference reference = firstWeakReference;
+        while (reference != null) {
+            RuntimeReference next = reference.next;
+            reference.next = null;
+            if ((reference.object.classReference & RuntimeObject.GC_MARKED) == 0) {
+                reference.object = null;
+                RuntimeReferenceQueue queue = reference.queue;
+                if (queue != null) {
+                    if (queue.first == null) {
+                        queue.first = reference;
+                    } else {
+                        queue.last.next = reference;
+                    }
+                    queue.last = reference;
+                }
+            }
+            reference = next;
         }
     }
 
@@ -235,16 +312,17 @@ public final class GC {
                 if (!object.toAddress().isLessThan(currentRegionEnd)) {
                     currentRegionIndex = (int) ((object.toAddress().toLong() - heapAddress().toLong()) / regionSize());
                     Region currentRegion = Structure.add(Region.class, regionsAddress(), currentRegionIndex);
-                    if (currentRegion.start == 0) {
-                        do {
-                            if (++currentRegionIndex == regionsCount) {
-                                object = limit.toStructure();
-                                break loop;
-                            }
-                            currentRegion = Structure.add(Region.class, regionsAddress(), currentRegionIndex);
-                        } while (currentRegion.start == 0);
+                    while (currentRegion.start == 0) {
+                        if (++currentRegionIndex == regionsCount) {
+                            object = limit.toStructure();
+                            break loop;
+                        }
+                        currentRegion = Structure.add(Region.class, regionsAddress(), currentRegionIndex);
                     }
-                    currentRegionEnd = currentRegion.toAddress().add(regionSize());
+                    Address newRegionStart = heapAddress().add(currentRegionIndex * regionSize());
+                    object = newRegionStart.add(currentRegion.start - 1).toStructure();
+                    currentRegionEnd = newRegionStart.add(regionSize());
+                    continue;
                 }
             } else {
                 if (lastFreeSpace != null) {
@@ -298,13 +376,27 @@ public final class GC {
         int end = upper;
         int mid = (lower + upper) / 2;
 
-        FreeChunk midChunk = getFreeChunk(mid).value;
+        int midSize = getFreeChunk(mid).value.size;
+        int firstSize = getFreeChunk(lower).value.size;
+        int lastSize = getFreeChunk(upper).value.size;
+        if (midSize < firstSize) {
+            int tmp = firstSize;
+            firstSize = midSize;
+            midSize = tmp;
+        }
+        if (lastSize < firstSize) {
+            lastSize = firstSize;
+        }
+        if (midSize > lastSize) {
+            midSize = lastSize;
+        }
+
         outer: while (true) {
             while (true) {
                 if (lower == upper) {
                     break outer;
                 }
-                if (getFreeChunk(lower).value.size <= midChunk.size) {
+                if (getFreeChunk(lower).value.size <= midSize) {
                     break;
                 }
                 ++lower;
@@ -313,7 +405,7 @@ public final class GC {
                 if (lower == upper) {
                     break outer;
                 }
-                if (getFreeChunk(upper).value.size > midChunk.size) {
+                if (getFreeChunk(upper).value.size > midSize) {
                     break;
                 }
                 --upper;
@@ -323,6 +415,9 @@ public final class GC {
             getFreeChunk(upper).value = tmp;
         }
 
+        if (lower == end || upper == start) {
+            return;
+        }
         if (lower - start > 0) {
             sortFreeChunks(start, lower);
         }

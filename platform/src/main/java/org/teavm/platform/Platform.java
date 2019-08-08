@@ -21,12 +21,14 @@ import org.teavm.backend.javascript.spi.InjectedBy;
 import org.teavm.dependency.PluggableDependency;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
+import org.teavm.interop.NoSideEffects;
+import org.teavm.interop.PlatformMarker;
+import org.teavm.interop.Platforms;
 import org.teavm.interop.Unmanaged;
 import org.teavm.jso.JSBody;
 import org.teavm.jso.JSObject;
 import org.teavm.jso.browser.Window;
 import org.teavm.jso.core.JSString;
-import org.teavm.platform.metadata.ClassResource;
 import org.teavm.platform.metadata.StaticFieldResource;
 import org.teavm.platform.plugin.PlatformGenerator;
 import org.teavm.runtime.RuntimeClass;
@@ -40,10 +42,12 @@ public final class Platform {
 
     @InjectedBy(PlatformGenerator.class)
     @Unmanaged
+    @NoSideEffects
     public static native PlatformObject getPlatformObject(Object obj);
 
     @GeneratedBy(PlatformGenerator.class)
     @PluggableDependency(PlatformGenerator.class)
+    @NoSideEffects
     public static native Object clone(Object obj);
 
     @DelegateTo("isInstanceLowLevel")
@@ -59,6 +63,7 @@ public final class Platform {
     }
 
     @JSBody(params = "object", script = "return typeof object === 'undefined';")
+    @NoSideEffects
     private static native boolean isUndefined(JSObject object);
 
     @DelegateTo("isAssignableLowLevel")
@@ -84,9 +89,11 @@ public final class Platform {
     @InjectedBy(PlatformGenerator.class)
     @PluggableDependency(PlatformGenerator.class)
     @Unmanaged
+    @NoSideEffects
     public static native Class<?> asJavaClass(PlatformObject obj);
 
     @JSBody(script = "return $rt_nextId();")
+    @NoSideEffects
     public static native int nextObjectId();
 
     public static <T> T newInstance(PlatformClass cls) {
@@ -98,6 +105,7 @@ public final class Platform {
     }
 
     @GeneratedBy(PlatformGenerator.class)
+    @NoSideEffects
     private static native void prepareNewInstance();
 
     @GeneratedBy(PlatformGenerator.class)
@@ -106,6 +114,7 @@ public final class Platform {
 
     @GeneratedBy(PlatformGenerator.class)
     @PluggableDependency(PlatformGenerator.class)
+    @NoSideEffects
     public static native PlatformClass lookupClass(String name);
 
     @PluggableDependency(PlatformGenerator.class)
@@ -122,15 +131,12 @@ public final class Platform {
 
     @InjectedBy(PlatformGenerator.class)
     @PluggableDependency(PlatformGenerator.class)
-    public static native PlatformClass classFromResource(ClassResource resource);
-
-    @InjectedBy(PlatformGenerator.class)
-    @PluggableDependency(PlatformGenerator.class)
     public static native Object objectFromResource(StaticFieldResource resource);
 
     @GeneratedBy(PlatformGenerator.class)
     @PluggableDependency(PlatformGenerator.class)
     @DelegateTo("getEnumConstantsLowLevel")
+    @NoSideEffects
     public static native Enum<?>[] getEnumConstants(PlatformClass cls);
 
     private static Enum<?>[] getEnumConstantsLowLevel(PlatformClass cls) {
@@ -192,8 +198,17 @@ public final class Platform {
         Window.clearTimeout(id);
     }
 
+    public static <T> PlatformQueue<T> createQueue() {
+        if (isLowLevel()) {
+            return new LowLevelQueue<>();
+        } else {
+            return createQueueJs();
+        }
+    }
+
     @JSBody(script = "return [];")
-    public static native <T> PlatformQueue<T> createQueue();
+    @NoSideEffects
+    private static native  <T> PlatformQueue<T> createQueueJs();
 
     public static PlatformString stringFromCharCode(int charCode) {
         return JSString.fromCharCode(charCode).cast();
@@ -226,7 +241,13 @@ public final class Platform {
     }
 
     @Unmanaged
+    @PluggableDependency(PlatformGenerator.class)
     public static String getName(PlatformClass cls) {
         return cls.getMetadata().getName();
+    }
+
+    @PlatformMarker(Platforms.LOW_LEVEL)
+    private static boolean isLowLevel() {
+        return false;
     }
 }
