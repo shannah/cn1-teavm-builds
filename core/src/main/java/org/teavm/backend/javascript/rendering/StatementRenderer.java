@@ -112,10 +112,11 @@ public class StatementRenderer implements ExprVisitor, StatementVisitor {
         this.minifying = context.isMinifying();
         this.naming = context.getNaming();
         this.debugEmitter = context.getDebugEmitter();
-        usedVariableNames.add(context.tempVarName());
-        usedVariableNames.add(context.pointerName());
-        usedVariableNames.add(context.threadName());
-        usedVariableNames.add("arguments");
+        if (!minifying) {
+            usedVariableNames.add("$tmp");
+            usedVariableNames.add("$ptr");
+            usedVariableNames.add("$thread");
+        }
     }
 
     public boolean isLongLibraryUsed() {
