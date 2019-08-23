@@ -13,14 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.runtime;
 
-import org.teavm.interop.Structure;
-import org.teavm.interop.c.Name;
-import org.teavm.interop.c.Native;
-
-@Native
-@Name("TeaVM_StringPtr")
-public class StringPtr extends Structure {
-    public String value;
+function main(args, callback) {
+    callback();
 }
