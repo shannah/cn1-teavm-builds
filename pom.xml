@@ -75,7 +75,7 @@
 
     <s3.bucket.name>cn1-maven</s3.bucket.name>
 
-    <jackson.version>2.6.2</jackson.version>
+    <jackson.version>2.13.4.1</jackson.version>
     <idea.version>2017.3.5</idea.version>
     <asm.version>7.1</asm.version>
     <java.version>1.8</java.version>
